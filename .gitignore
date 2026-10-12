@@ -1,0 +1,6 @@
+# Unscrubbed originals (never committed)
+private/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db

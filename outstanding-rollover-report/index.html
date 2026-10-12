@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outstanding Rollover Report</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --panel-2:#1c2230; --line:#2b3340;
+    --ink:#e6edf3; --ink-dim:#8b949e; --accent:#1f6feb; --accent-2:#2ea043;
+    --warn:#d29922; --bad:#f85149; --persh:#c97cc7; --mono:'Cascadia Code','Consolas',ui-monospace,monospace;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font-family:var(--mono); font-size:14px; line-height:1.5;
+    padding:24px; min-height:100vh;
+  }
+  .wrap { max-width:980px; margin:0 auto; }
+  header {
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:22px;
+  }
+  h1 { font-size:18px; letter-spacing:.5px; font-weight:700; }
+  h1 .sub { color:var(--ink-dim); font-weight:400; font-size:13px; margin-left:10px; }
+  .pill {
+    font-size:12px; padding:4px 12px; border-radius:2px; border:1px solid var(--line);
+    background:var(--panel-2); letter-spacing:1px; text-transform:uppercase;
+  }
+  .pill.Idle      { color:var(--ink-dim); }
+  .pill.Running   { color:var(--accent);  border-color:var(--accent);  animation:pulse 1.4s infinite; }
+  .pill.Done      { color:var(--accent-2);border-color:var(--accent-2); }
+  .pill.Failed,
+  .pill.Cancelled { color:var(--bad);     border-color:var(--bad); }
+  @keyframes pulse { 50% { opacity:.55; } }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:16px; }
+  .panel h2 {
+    font-size:12px; text-transform:uppercase; letter-spacing:1.5px;
+    color:var(--ink-dim); margin-bottom:14px; font-weight:600;
+  }
+  label { display:block; font-size:12px; color:var(--ink-dim); margin:10px 0 4px; }
+  input[type=text] {
+    width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
+    font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:2px;
+  }
+  input[type=text]:focus { outline:none; border-color:var(--accent); }
+  input[type=text]:disabled { opacity:.55; }
+  .hint { font-size:11px; color:var(--ink-dim); margin-top:4px; }
+  .check { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; }
+  .check input { width:16px; height:16px; accent-color:var(--accent); }
+
+  .warn-banner {
+    display:none; margin-top:10px; padding:8px 12px;
+    background:#2a1f06; border:1px solid var(--warn); border-radius:2px;
+    font-size:12px; color:var(--warn);
+  }
+  .warn-banner.show { display:block; }
+  .warn-banner.bad { background:#2b0f0e; border-color:var(--bad); color:var(--bad); }
+
+  /* Review panels -- hidden until the run produces something for them */
+  .review { display:none; border-radius:3px; padding:16px; margin-bottom:18px; background:var(--panel); }
+  .review.show { display:block; animation:panelIn .45s ease-out; }
+  @keyframes panelIn {
+    0%   { opacity:0; transform:translateY(-6px); }
+    100% { opacity:1; transform:translateY(0); }
+  }
+  .review h2 { font-size:12px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600; margin-bottom:10px; }
+  .review .why { font-size:12px; color:var(--ink-dim); margin-bottom:12px; }
+  .review ul { list-style:none; font-size:12px; }
+  .review li { padding:5px 0; border-bottom:1px solid var(--line); word-break:break-word; }
+  .review li:last-child { border-bottom:none; }
+  /* Pershing rows arrive as "Field: value | Field: value | ...". The first
+     field is the Source Account, which is what gets typed into NetX, so it
+     leads in full contrast and the rest recede. */
+  .review li .lead { color:var(--ink); font-weight:600; }
+  .review li .rest { color:var(--ink-dim); }
+  .review li .sep  { color:var(--line); padding:0 4px; }
+  #pershPanel   { border:1px solid var(--persh); }
+  #pershPanel h2 { color:var(--persh); }
+  #nearMissPanel { border:1px solid var(--warn); }
+  #nearMissPanel h2 { color:var(--warn); }
+
+  .controls { display:flex; gap:10px; margin:18px 0; flex-wrap:wrap; align-items:center; }
+  button {
+    font-family:var(--mono); font-size:13px; font-weight:600; letter-spacing:.5px;
+    padding:10px 22px; border-radius:2px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--ink); cursor:pointer; transition:.15s;
+  }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  #btnRun      { background:var(--accent); border-color:var(--accent); }
+  #btnCancel   { border-color:var(--bad); color:var(--bad); }
+  #btnFolder   { border-color:var(--accent-2); color:var(--accent-2); }
+  #btnShutdown { margin-left:auto; font-weight:400; color:var(--ink-dim); }
+
+  .progress-shell {
+    background:var(--bg); border:1px solid var(--line); border-radius:2px;
+    height:26px; overflow:hidden; position:relative; margin-bottom:8px;
+  }
+  .progress-fill {
+    height:100%; width:0%; background:linear-gradient(90deg,var(--accent),#388bfd);
+    transition:width .4s ease;
+  }
+  .progress-fill.done   { background:linear-gradient(90deg,var(--accent-2),#3fb950); }
+  .progress-fill.failed { background:linear-gradient(90deg,var(--bad),#ff7b72); }
+  .progress-label {
+    position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; font-size:12px; letter-spacing:.5px;
+  }
+  .phase-line { font-size:12px; color:var(--ink-dim); margin-bottom:4px; }
+  .out { font-size:12px; margin-top:14px; }
+  .out div { padding:3px 0; color:var(--ink-dim); word-break:break-all; }
+  .out b { color:var(--ink); font-weight:600; }
+
+  /* Results cards.
+     The full set is always in the DOM with a "-" placeholder, so numbers
+     landing mid-run swap in place instead of growing the panel and shoving
+     the log down the page. Card order matches the order run.ps1 emits
+     @@COUNT, so the shimmer resolves left-to-right as the pipeline advances. */
+  .cards {
+    display:grid; gap:10px;
+    grid-template-columns:repeat(auto-fit, minmax(166px, 1fr));
+  }
+  .card {
+    background:var(--panel-2); border:1px solid var(--line); border-radius:3px;
+    padding:10px 12px; min-height:68px;
+    display:flex; flex-direction:column; justify-content:space-between;
+  }
+  .card .k {
+    font-size:11px; letter-spacing:.4px; color:var(--ink-dim);
+    text-transform:uppercase; line-height:1.35;
+  }
+  .card .v {
+    font-size:22px; font-weight:700; line-height:1; margin-top:10px;
+    color:var(--ink); font-variant-numeric:tabular-nums;
+  }
+  .card.muted .v { color:var(--ink-dim); }
+  .card.green .v { color:var(--accent-2); }
+  .card.persh .v { color:var(--persh); }
+  .card.red   .v { color:var(--bad); }
+  .card.blue  .v { color:var(--accent); }
+  .card .v.idle { color:var(--ink-dim) !important; }
+
+  /* Waiting on this number: a skeleton bar the same size as the digits it
+     stands in for, so nothing shifts when the value replaces it. */
+  .card .v.pending {
+    color:transparent !important; border-radius:3px;
+    width:54px; height:22px; margin-top:10px;
+    background:linear-gradient(90deg,#1f2733 25%,#313d4e 50%,#1f2733 75%);
+    background-size:200% 100%;
+    animation:shimmer 1.3s ease-in-out infinite;
+  }
+  @keyframes shimmer {
+    0%   { background-position:200% 0; }
+    100% { background-position:-200% 0; }
+  }
+  .card .v.arrive { animation:valueIn .38s ease-out; }
+  @keyframes valueIn {
+    0%   { opacity:0; transform:translateY(5px); }
+    100% { opacity:1; transform:translateY(0); }
+  }
+
+  /* Anything narrower than a laptop: stack the config/progress pair and let
+     the cards reflow to whatever fits. */
+  @media (max-width:860px) {
+    body { padding:16px; }
+    .grid { grid-template-columns:1fr; }
+    .cards { grid-template-columns:repeat(auto-fit, minmax(138px, 1fr)); }
+    .card .v { font-size:19px; }
+  }
+
+  .log {
+    background:#0a0d12; border:1px solid var(--line); border-radius:3px;
+    height:300px; overflow-y:auto; padding:12px; font-size:12px;
+    white-space:pre-wrap; word-break:break-word; color:#9fb3c8;
+  }
+  .log .l { padding:1px 0; }
+  footer { margin-top:18px; font-size:11px; color:var(--ink-dim); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>OUTSTANDING ROLLOVER REPORT <span class="sub">generation &amp; call list split</span></h1>
+    <span id="statusPill" class="pill Idle">Idle</span>
+  </header>
+
+  <div class="grid">
+    <div class="panel">
+      <h2>Configuration</h2>
+
+      <label>Raw input file (Custom Rollover Search Results)</label>
+      <input type="text" id="rawInput" list="recentFiles" placeholder="Loading default...">
+      <div id="rawWarn" class="warn-banner">
+        This file was not modified today &mdash; you may be using an older download.
+      </div>
+
+      <label>Previous Outstanding Rollover Report</label>
+      <input type="text" id="oldReport" list="recentFiles" placeholder="Loading default...">
+      <div id="oldWarn" class="warn-banner bad">
+        No previous report found automatically. Notes, callback dates and NIGO
+        carry-over all come from this file &mdash; pick it before running.
+      </div>
+
+      <datalist id="recentFiles"></datalist>
+      <div class="hint" id="recentHint">Both fields offer recent spreadsheets from your Downloads folder.</div>
+
+      <div id="configWarn" class="warn-banner bad">
+        config.json is missing from the app folder. The run will fail without it.
+      </div>
+
+      <div class="check">
+        <input type="checkbox" id="autoShutdown" checked>
+        <label style="margin:0;color:var(--ink);">Shut down server when finished</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Progress</h2>
+      <div class="phase-line" id="phaseLine">Idle &mdash; no run started.</div>
+      <div class="progress-shell">
+        <div class="progress-fill" id="progFill"></div>
+        <div class="progress-label" id="progLabel">0%</div>
+      </div>
+      <div class="out" id="outFiles"></div>
+    </div>
+  </div>
+
+  <!-- Results: fixed card set, populated as the pipeline reports each count -->
+  <div class="panel" id="countsPanel" style="margin-bottom:18px;">
+    <h2>Results</h2>
+    <div class="cards" id="cards"></div>
+  </div>
+
+  <!-- Pershing rows needing the manual NetX check -->
+  <div class="review" id="pershPanel">
+    <h2>&#9888; Manual step required &mdash; Pershing NetX check</h2>
+    <div class="why">
+      These rows were held back from both call lists. Check NetX for each one, then
+      move it by hand: <b>LOA uploaded &rarr; Contra Firm Call List</b>,
+      <b>LOA not uploaded &rarr; Advisor Call List</b>. They are highlighted on the Raw DNU tab.
+    </div>
+    <ul id="pershList"></ul>
+  </div>
+
+  <!-- Blue companies that nearly matched a red entry -->
+  <div class="review" id="nearMissPanel">
+    <h2>&#9873; Review &mdash; blue companies that nearly matched a red entry</h2>
+    <div class="why">
+      These stayed on the Contra Firm Call List but resemble a Do Not Call firm.
+      If any one of them <i>is</i> the firm it resembles, add its exact Source Company
+      wording to <code>redCompanies</code> in config.json, and update the Company
+      Information List and the Do Not Call resource to match.
+    </div>
+    <ul id="nearMissList"></ul>
+  </div>
+
+  <div class="controls">
+    <button id="btnRun">&#9654; GENERATE REPORT</button>
+    <button id="btnCancel" disabled>&#9632; CANCEL</button>
+    <button id="btnFolder" disabled>&#128193; OPEN OUTPUT FOLDER</button>
+    <button id="btnShutdown">shut down server</button>
+  </div>
+
+  <div class="panel">
+    <h2>Log</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+  <footer>server owns all state &middot; polls every second &middot; closing this tab during a run cancels it</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let polling      = null;
+let lastStatus   = "Idle";
+let autoShutDone = false;   // guard so auto-shutdown fires only once per run
+let todayStr     = "";
+
+function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+// ── Results cards ─────────────────────────────────────────────────────────────
+// `label` must match the @@COUNT label run.ps1 emits, exactly. `short` is what
+// fits on a card. Order is pipeline order, so the shimmer clears roughly
+// left-to-right as the run progresses.
+const CARDS = [
+  { label:'Trading Platform (not called)',   short:'Trading Platform',  cls:'muted' },
+  { label:'Received',                        short:'Received',          cls:'green' },
+  { label:'State TRSs (not called)',         short:'State TRSs',        cls:'muted' },
+  { label:'Internals (not called)',          short:'Internals',         cls:'muted' },
+  { label:'Funding Review',                  short:'Funding Review',    cls:''      },
+  { label:'Pending LOA (not called)',        short:'Pending LOA',       cls:'muted' },
+  { label:'Pershing (manual NetX check)',    short:'Pershing',          cls:'persh' },
+  { label:'Advisor Call List (red)',         short:'Advisor Call List', cls:'red'   },
+  { label:'Contra Firm Call List (blue)',    short:'Contra Firm List',  cls:'blue'  },
+  { label:'Raw DNU (all rows)',              short:'Raw DNU',           cls:''      }
+];
+
+// Labels already animated in this run, so a value only pops once rather than
+// re-animating on every one-second poll.
+const arrived = new Set();
+
+function buildCards() {
+  $('cards').innerHTML = CARDS.map((c, i) =>
+    `<div class="card ${c.cls}" title="${esc(c.label)}">` +
+      `<div class="k">${esc(c.short)}</div>` +
+      `<div class="v idle" id="cardV${i}">-</div>` +
+    `</div>`).join('');
+}
+
+function renderCards(s) {
+  const counts  = s.counts || [];
+  const map     = new Map(counts.map(c => [c.label, c.rows]));
+  const running = s.status === 'Running';
+
+  // The server clears counts on /start, so an empty array means a fresh run
+  // (or no run yet) and every card goes back to its placeholder.
+  if (counts.length === 0) arrived.clear();
+
+  CARDS.forEach((c, i) => {
+    const el = $('cardV' + i);
+    if (!el) return;
+
+    if (map.has(c.label)) {
+      const val = String(map.get(c.label));
+      if (!arrived.has(c.label)) {
+        arrived.add(c.label);
+        el.className   = 'v arrive';
+        el.textContent = val;
+      } else if (el.textContent !== val) {
+        el.className   = 'v';
+        el.textContent = val;
+      } else {
+        el.className   = 'v';
+      }
+    } else if (running) {
+      if (el.className !== 'v pending') {
+        el.className   = 'v pending';
+        el.textContent = '-';
+      }
+    } else {
+      el.className   = 'v idle';
+      el.textContent = '-';
+    }
+  });
+}
+
+// ── Defaults prefill ──────────────────────────────────────────────────────────
+// Mirrors what generate_command.ps1 guessed at the console: the raw export by
+// its known filename, and the newest "outstanding rollover" file. Fields are
+// only prefilled when empty, so a typed path is never clobbered by a refresh.
+async function loadDefaults() {
+  try {
+    const r = await fetch('/defaults', { cache:'no-store' });
+    const d = await r.json();
+    todayStr = d.today || "";
+
+    if (d.rawInput  && !$('rawInput').value)  $('rawInput').value  = d.rawInput;
+    if (d.oldReport && !$('oldReport').value) $('oldReport').value = d.oldReport;
+
+    const dl = $('recentFiles');
+    dl.innerHTML = (d.recent || [])
+      .map(f => `<option value="${esc(f.path)}">${esc(f.name)} &mdash; ${esc(f.modified)}</option>`)
+      .join('');
+    if (d.downloads) {
+      $('recentHint').textContent =
+        `Recent spreadsheets from ${d.downloads} are offered in both fields.`;
+    }
+
+    // Staleness: the raw export should be today's download.
+    $('rawWarn').classList.toggle('show',
+      !!(d.rawFileDate && d.today && d.rawFileDate !== d.today));
+
+    // No previous report found is worth shouting about -- the run would
+    // "succeed" but silently drop every carried-over note and callback date.
+    $('oldWarn').classList.toggle('show', !d.oldReport);
+
+    $('configWarn').classList.toggle('show', d.configOk === false);
+  } catch(e) { /* server may not be up yet; next poll retries */ }
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function setControls(s) {
+  const running = s.status === "Running";
+  $('btnRun').disabled    = running;
+  $('btnCancel').disabled = !running;
+  ['rawInput','oldReport'].forEach(i => $(i).disabled = running);
+
+  const of = s.outputFiles || {};
+  $('btnFolder').disabled = !of.folder;
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function render(s) {
+  $('statusPill').textContent = s.status;
+  $('statusPill').className   = 'pill ' + s.status;
+  setControls(s);
+
+  const p   = s.progress || { phase:0, pct:0, msg:'' };
+  const pct = p.pct || 0;
+
+  $('progFill').className =
+    'progress-fill' + (s.status === 'Done' ? ' done'
+                     : (s.status === 'Failed' || s.status === 'Cancelled') ? ' failed' : '');
+  $('progFill').style.width  = pct + '%';
+  $('progLabel').textContent = pct + '%';
+
+  if (s.status === 'Idle') {
+    $('phaseLine').textContent = 'Idle - no run started.';
+  } else if (s.status === 'Done') {
+    $('phaseLine').textContent = 'Complete.';
+  } else if (s.status === 'Failed') {
+    $('phaseLine').textContent = 'Failed - see the log below.';
+  } else if (s.status === 'Cancelled') {
+    $('phaseLine').textContent = 'Cancelled.';
+  } else {
+    $('phaseLine').textContent =
+      `Phase ${p.phase || 0}/${s.phaseMax || 6}  |  ${p.msg || ''}`;
+  }
+
+  // Output files
+  const of = s.outputFiles || {};
+  $('outFiles').innerHTML =
+    (of.workbook ? `<div><b>Workbook:</b> ${esc(of.workbook)}</div>` : '') +
+    (of.folder   ? `<div><b>Folder:</b> ${esc(of.folder)}</div>`     : '') +
+    (of.log      ? `<div><b>Log:</b> ${esc(of.log)}</div>`           : '');
+
+  // Results cards
+  renderCards(s);
+
+  // Pershing manual check. Split on the pipe so the leading field (Source
+  // Account) reads at full contrast and the identifiers behind it stay quiet.
+  const persh = s.persh || [];
+  $('pershPanel').classList.toggle('show', persh.length > 0);
+  $('pershList').innerHTML = persh.map(x => {
+    const parts = String(x).split('|').map(p => p.trim());
+    const head  = `<span class="lead">${esc(parts[0])}</span>`;
+    const tail  = parts.slice(1)
+      .map(p => `<span class="sep">|</span><span class="rest">${esc(p)}</span>`)
+      .join('');
+    return `<li>${head}${tail}</li>`;
+  }).join('');
+
+  // Near-miss review
+  const nm = s.nearMiss || [];
+  $('nearMissPanel').classList.toggle('show', nm.length > 0);
+  $('nearMissList').innerHTML = nm.map(x => `<li>${esc(x)}</li>`).join('');
+
+  // Log (keep pinned to bottom unless the user has scrolled up)
+  const log = $('log');
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.innerHTML = (s.log || []).map(l => `<div class="l">${esc(l)}</div>`).join('');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+
+  // Auto-shutdown on the Running -> Done edge.
+  //
+  // The output folder is opened FIRST and awaited. Every button on this page
+  // is a call to the server, so once it stops, "Open output folder" is dead --
+  // opening it on the way out means the one thing you need after a run is
+  // already on screen. The Pershing and near-miss panels stay rendered; they
+  // are just frozen, since polling stops with the server.
+  if (s.status === 'Done' && lastStatus !== 'Done' && !autoShutDone
+      && $('autoShutdown').checked) {
+    autoShutDone = true;
+    clearInterval(polling);
+    $('phaseLine').textContent = 'Complete - opening output folder...';
+    (async () => {
+      try { await fetch('/openFolder', { method:'POST' }); } catch(e) {}
+      try { await fetch('/shutdown',   { method:'POST' }); } catch(e) {}
+      $('phaseLine').textContent =
+        'Complete. Server stopped - re-run START.bat to generate another report.';
+      $('btnRun').disabled    = true;
+      $('btnCancel').disabled = true;
+      $('btnFolder').disabled = true;
+    })();
+  }
+
+  lastStatus = s.status;
+}
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const r = await fetch('/status', { cache:'no-store' });
+    render(await r.json());
+  } catch(e) {
+    $('phaseLine').textContent = 'Server unreachable - is the START.bat window still open?';
+  }
+}
+
+// ── Buttons ───────────────────────────────────────────────────────────────────
+$('btnRun').addEventListener('click', async () => {
+  $('btnRun').disabled = true;
+  autoShutDone = false;
+  const payload = {
+    rawInput:  $('rawInput').value.trim(),
+    oldReport: $('oldReport').value.trim()
+  };
+  try {
+    const r = await fetch('/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j.ok) alert(j.error || 'Could not start.');
+  } catch(e) { alert('Start failed: ' + e.message); }
+  poll();
+});
+
+$('btnCancel').addEventListener('click', async () => {
+  if (!confirm('Cancel the current run?\n\nA partially written workbook may be left behind.')) return;
+  try { await fetch('/cancel', { method:'POST' }); } catch(e) {}
+  poll();
+});
+
+$('btnFolder').addEventListener('click', async () => {
+  try {
+    const r = await fetch('/openFolder', { method:'POST' });
+    const j = await r.json();
+    if (!j.ok) alert(j.error || 'Could not open the folder.');
+  } catch(e) {}
+});
+
+$('btnShutdown').addEventListener('click', async () => {
+  if (!confirm('Shut down the server? You will need to re-run START.bat.')) return;
+  try { await fetch('/shutdown', { method:'POST' }); } catch(e) {}
+  $('phaseLine').textContent = 'Server shut down. Re-run START.bat to use again.';
+  clearInterval(polling);
+});
+
+// Refresh the guessed defaults when the tab regains focus -- covers the common
+// case of downloading the export after the GUI was already open.
+window.addEventListener('focus', () => { if (lastStatus !== 'Running') loadDefaults(); });
+
+// Cancel on tab close during an active run
+window.addEventListener('beforeunload', () => {
+  if (lastStatus === 'Running') navigator.sendBeacon('/cancel');
+});
+
+buildCards();
+loadDefaults();
+polling = setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>

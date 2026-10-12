@@ -1,0 +1,75 @@
+{
+    "version": "1.0",
+    "lastModified": "",
+    "outputBasePath": "",
+    "formatting": {
+        "headerColor": "#e97132",
+        "headerFontColor": "#000000"
+    },
+    "columnOrder": [
+        "OES",
+        "Rollover ID",
+        "Client Name",
+        "OES Assigned To",
+        "Source Company",
+        "Created",
+        "LOA Date",
+        "TPA Authorization Requested",
+        "TPA Approval",
+        "Expected Amount",
+        "Source Account",
+        "Total Platform Balance",
+        "Representative"
+    ],
+    "sheets": {
+        "data": {
+            "name": "Data"
+        },
+        "roReport": {
+            "name": "RO Report",
+            "filters": {
+                "excludeSourceCompanies": [
+                    "PARTNER_BANK",
+                    "INTERNAL_COMPANY"
+                ]
+            }
+        },
+        "noLOA": {
+            "name": "No LOA"
+        },
+        "noTPA": {
+            "name": "No TPA",
+            "filters": {
+                "tpaRequestedBusinessDaysThreshold": 2
+            }
+        }
+    },
+    "holidays": {
+        "apiUrl": "https://date.nager.at/api/v3/PublicHolidays/{year}/US",
+        "apiTimeoutSeconds": 5,
+        "fallbackHolidays": [
+            "2026-01-01",
+            "2026-01-19",
+            "2026-02-16",
+            "2026-05-25",
+            "2026-06-19",
+            "2026-07-03",
+            "2026-09-07",
+            "2026-10-12",
+            "2026-11-11",
+            "2026-11-26",
+            "2026-12-25",
+            "2027-01-01",
+            "2027-01-18",
+            "2027-02-15",
+            "2027-05-31",
+            "2027-06-18",
+            "2027-07-05",
+            "2027-09-06",
+            "2027-10-11",
+            "2027-11-11",
+            "2027-11-25",
+            "2027-12-24"
+        ]
+    }
+}

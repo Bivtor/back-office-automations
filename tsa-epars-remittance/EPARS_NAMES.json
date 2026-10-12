@@ -1,0 +1,132 @@
+{
+  "remittance_mappings": [
+    {
+      "excel_name": "EMPLOYER_01_EXCEL_NAME",
+      "file_name": "EMPLOYER_01"
+    },
+    {
+      "excel_name": "EMPLOYER_02_EXCEL_NAME",
+      "file_name": "EMPLOYER_02"
+    },
+    {
+      "excel_name": "EMPLOYER_03_EXCEL_NAME",
+      "file_name": "EMPLOYER_03"
+    },
+    {
+      "excel_name": "EMPLOYER_04_EXCEL_NAME",
+      "file_name": "EMPLOYER_04"
+    },
+    {
+      "excel_name": "EMPLOYER_05_EXCEL_NAME",
+      "file_name": "EMPLOYER_05"
+    },
+    {
+      "excel_name": "EMPLOYER_06_EXCEL_NAME",
+      "file_name": "EMPLOYER_06"
+    },
+    {
+      "excel_name": "EMPLOYER_07_EXCEL_NAME",
+      "file_name": "EMPLOYER_07"
+    },
+    {
+      "excel_name": "EMPLOYER_08_EXCEL_NAME",
+      "file_name": "EMPLOYER_08"
+    },
+    {
+      "excel_name": "EMPLOYER_09_EXCEL_NAME",
+      "file_name": "EMPLOYER_09"
+    },
+    {
+      "excel_name": "EMPLOYER_10_EXCEL_NAME",
+      "file_name": "EMPLOYER_10"
+    },
+    {
+      "excel_name": "EMPLOYER_11_EXCEL_NAME",
+      "file_name": "EMPLOYER_11"
+    },
+    {
+      "excel_name": "EMPLOYER_12_EXCEL_NAME",
+      "file_name": "EMPLOYER_12"
+    },
+    {
+      "excel_name": "EMPLOYER_13_EXCEL_NAME",
+      "file_name": "EMPLOYER_13"
+    },
+    {
+      "excel_name": "EMPLOYER_14_EXCEL_NAME",
+      "file_name": "EMPLOYER_14"
+    },
+    {
+      "excel_name": "EMPLOYER_15_EXCEL_NAME",
+      "file_name": "EMPLOYER_15"
+    },
+    {
+      "excel_name": "EMPLOYER_16_EXCEL_NAME",
+      "file_name": "EMPLOYER_16"
+    },
+    {
+      "excel_name": "EMPLOYER_17_EXCEL_NAME",
+      "file_name": "EMPLOYER_17"
+    },
+    {
+      "excel_name": "EMPLOYER_18_EXCEL_NAME",
+      "file_name": "EMPLOYER_18"
+    },
+    {
+      "excel_name": "EMPLOYER_19_EXCEL_NAME",
+      "file_name": "EMPLOYER_19"
+    },
+    {
+      "excel_name": "EMPLOYER_20_EXCEL_NAME",
+      "file_name": "EMPLOYER_20"
+    },
+    {
+      "excel_name": "EMPLOYER_21_EXCEL_NAME",
+      "file_name": "EMPLOYER_21"
+    },
+    {
+      "excel_name": "EMPLOYER_22_EXCEL_NAME",
+      "file_name": "EMPLOYER_22"
+    },
+    {
+      "excel_name": "EMPLOYER_23_EXCEL_NAME",
+      "file_name": "EMPLOYER_23"
+    },
+    {
+      "excel_name": "EMPLOYER_24_EXCEL_NAME",
+      "file_name": "EMPLOYER_24"
+    },
+    {
+      "excel_name": "EMPLOYER_25_EXCEL_NAME",
+      "file_name": "EMPLOYER_25"
+    },
+    {
+      "excel_name": "EMPLOYER_26_EXCEL_NAME",
+      "file_name": "EMPLOYER_26"
+    },
+    {
+      "excel_name": "EMPLOYER_27_EXCEL_NAME",
+      "file_name": "EMPLOYER_27"
+    },
+    {
+      "excel_name": "EMPLOYER_28_EXCEL_NAME",
+      "file_name": "EMPLOYER_28"
+    },
+    {
+      "excel_name": "EMPLOYER_29_EXCEL_NAME",
+      "file_name": "EMPLOYER_29"
+    },
+    {
+      "excel_name": "EMPLOYER_30_EXCEL_NAME",
+      "file_name": "EMPLOYER_30"
+    },
+    {
+      "excel_name": "EMPLOYER_31_EXCEL_NAME",
+      "file_name": "EMPLOYER_31"
+    },
+    {
+      "excel_name": "EMPLOYER_32_EXCEL_NAME",
+      "file_name": "EMPLOYER_32"
+    }
+  ]
+}

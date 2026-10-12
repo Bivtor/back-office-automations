@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Daily Queue Processor</title>
+<style>
+  :root {
+    --bg:#0e1116; --panel:#161b22; --panel-2:#1c2230; --line:#2b3340;
+    --ink:#e6edf3; --ink-dim:#8b949e; --accent:#1f6feb; --accent-2:#2ea043;
+    --warn:#d29922; --bad:#f85149; --persh:#c97cc7; --mono:'Cascadia Code','Consolas',ui-monospace,monospace;
+  }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body {
+    background:var(--bg); color:var(--ink);
+    font-family:var(--mono); font-size:14px; line-height:1.5;
+    padding:24px; min-height:100vh;
+  }
+  .wrap { max-width:980px; margin:0 auto; }
+  header {
+    display:flex; align-items:baseline; justify-content:space-between;
+    border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:22px;
+  }
+  h1 { font-size:18px; letter-spacing:.5px; font-weight:700; }
+  h1 .sub { color:var(--ink-dim); font-weight:400; font-size:13px; margin-left:10px; }
+  .pill {
+    font-size:12px; padding:4px 12px; border-radius:2px; border:1px solid var(--line);
+    background:var(--panel-2); letter-spacing:1px; text-transform:uppercase;
+  }
+  .pill.Idle      { color:var(--ink-dim); }
+  .pill.Running   { color:var(--accent);  border-color:var(--accent);  animation:pulse 1.4s infinite; }
+  .pill.Done      { color:var(--accent-2);border-color:var(--accent-2); }
+  .pill.Failed,
+  .pill.Cancelled { color:var(--bad);     border-color:var(--bad); }
+  @keyframes pulse { 50% { opacity:.55; } }
+
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px; }
+  .panel { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:16px; }
+  .panel h2 {
+    font-size:12px; text-transform:uppercase; letter-spacing:1.5px;
+    color:var(--ink-dim); margin-bottom:14px; font-weight:600;
+  }
+  label { display:block; font-size:12px; color:var(--ink-dim); margin:10px 0 4px; }
+  input[type=text] {
+    width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
+    font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:2px;
+  }
+  input[type=text]:focus { outline:none; border-color:var(--accent); }
+  .check { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; }
+  .check input { width:16px; height:16px; accent-color:var(--accent); }
+
+  .warn-banner {
+    display:none; margin-top:10px; padding:8px 12px;
+    background:#2a1f06; border:1px solid var(--warn); border-radius:2px;
+    font-size:12px; color:var(--warn);
+  }
+  .warn-banner.show { display:block; }
+
+  /* Phase A panel */
+  .phaseA-panel {
+    display:none; background:var(--panel); border:1px solid var(--persh);
+    border-radius:3px; padding:16px; margin-bottom:18px;
+  }
+  .phaseA-panel.show { display:block; }
+  .phaseA-panel h2 { color:var(--persh); font-size:12px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600; margin-bottom:12px; }
+  .phaseA-stat { font-size:13px; margin-bottom:10px; }
+  .phaseA-link { font-size:12px; color:var(--ink-dim); margin-bottom:10px; word-break:break-all; }
+  .phaseA-link a { color:var(--accent); }
+
+  .controls { display:flex; gap:10px; margin:18px 0; flex-wrap:wrap; }
+  button {
+    font-family:var(--mono); font-size:13px; font-weight:600; letter-spacing:.5px;
+    padding:10px 22px; border-radius:2px; border:1px solid var(--line);
+    background:var(--panel-2); color:var(--ink); cursor:pointer; transition:.15s;
+  }
+  button:hover:not(:disabled) { border-color:var(--accent); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+  #btnRun      { background:var(--accent); border-color:var(--accent); }
+  #btnCancel   { border-color:var(--bad); color:var(--bad); }
+  #btnSkip     { border-color:var(--persh); color:var(--persh); display:none; }
+  #btnShutdown { margin-left:auto; font-weight:400; color:var(--ink-dim); }
+
+  .progress-shell {
+    background:var(--bg); border:1px solid var(--line); border-radius:2px;
+    height:26px; overflow:hidden; position:relative; margin-bottom:8px;
+  }
+  .progress-fill {
+    height:100%; width:0%; background:linear-gradient(90deg,var(--accent),#388bfd);
+    transition:width .4s ease;
+  }
+  .progress-fill.phaseA { background:linear-gradient(90deg,var(--persh),#e0a8de); }
+  .progress-label {
+    position:absolute; inset:0; display:flex; align-items:center;
+    justify-content:center; font-size:12px; letter-spacing:.5px;
+  }
+  .phase-line { font-size:12px; color:var(--ink-dim); margin-bottom:4px; }
+  .out { font-size:13px; }
+  .out div { padding:3px 0; color:var(--ink-dim); }
+  .out b { color:var(--ink); font-weight:600; }
+
+  .log {
+    background:#0a0d12; border:1px solid var(--line); border-radius:3px;
+    height:300px; overflow-y:auto; padding:12px; font-size:12px;
+    white-space:pre-wrap; word-break:break-word; color:#9fb3c8;
+  }
+  .log .l { padding:1px 0; }
+  footer { margin-top:18px; font-size:11px; color:var(--ink-dim); text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <h1>DAILY QUEUE PROCESSOR <span class="sub">rollover / transfer assignment</span></h1>
+    <span id="statusPill" class="pill Idle">Idle</span>
+  </header>
+
+  <!-- Configuration + Progress grid -->
+  <div class="grid">
+    <div class="panel">
+      <h2>Configuration</h2>
+      <label>Excel export path (.xls)</label>
+      <input type="text" id="excelPath" placeholder="Loading default...">
+      <div id="exportWarn" class="warn-banner">
+        ⚠ Export file date doesn't match today — you may be using yesterday's download.
+      </div>
+      <label>Output folder</label>
+      <input type="text" id="outputPath" placeholder="Loading default...">
+      <label>Exclude processors (comma indices) &mdash; 1=Fran 2=Victor 3=Drew 4=Evan</label>
+      <input type="text" id="exclude" placeholder="e.g. 3  (leave blank for all)">
+      <div class="check">
+        <input type="checkbox" id="testMode">
+        <label style="margin:0;color:var(--ink);">Test mode</label>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Progress</h2>
+      <div class="phase-line" id="phaseLine">Idle &mdash; no run started.</div>
+      <div class="progress-shell">
+        <div class="progress-fill" id="progFill"></div>
+        <div class="progress-label" id="progLabel">0%</div>
+      </div>
+      <div class="phase-line" id="phaseAStat" style="margin-top:10px;"></div>
+      <div class="out" id="outFiles" style="margin-top:14px;"></div>
+    </div>
+  </div>
+
+  <!-- Phase A panel (shown only during PhaseA stage) -->
+  <div class="phaseA-panel" id="phaseAPanel">
+    <h2>&#128269; Phase A &mdash; PERSH Scan</h2>
+    <div class="phaseA-stat" id="phaseAScanStat">Waiting for scan...</div>
+    <div class="phaseA-link" id="phaseALink"></div>
+    <div style="font-size:12px;color:var(--ink-dim);">
+      Open the link above in a tab that has the <b>DQ Phase A PERSH Scanner</b> userscript installed.
+      The script will auto-advance through all rows and post results back here.
+      Click <b>Skip Phase A</b> to proceed without PERSH detection.
+    </div>
+  </div>
+
+  <div class="controls">
+    <button id="btnRun">&#9654; RUN PIPELINE</button>
+    <button id="btnCancel" disabled>&#9632; CANCEL</button>
+    <button id="btnSkip">&#8594; SKIP PHASE A</button>
+    <button id="btnShutdown">shut down server</button>
+  </div>
+
+  <div class="panel">
+    <h2>Log</h2>
+    <div class="log" id="log"></div>
+  </div>
+
+  <footer>server owns all state &middot; polls every second &middot; closing this tab during a run cancels it &middot; server auto-shuts down when a run completes</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let polling   = null;
+let lastStatus = "Idle";
+let lastStage  = "";
+let autoShutDone = false;   // guard so auto-shutdown fires only once per completed run
+
+// ── Defaults prefill ──────────────────────────────────────────────────────────
+// We keep both the production (Q:) and test output paths. The Output field
+// shows whichever matches the Test mode toggle, unless the user has typed
+// their own path (then we leave it alone).
+let _prodOutputPath = '';
+let _testOutputPath = '';
+let _outputUserEdited = false;
+
+function applyOutputDefault() {
+  if (_outputUserEdited) return;              // respect a manually typed path
+  const useTest = $('testMode').checked;
+  const val = useTest ? _testOutputPath : _prodOutputPath;
+  if (val) $('outputPath').value = val;
+}
+
+async function loadDefaults() {
+  try {
+    const r = await fetch('/defaults', { cache: 'no-store' });
+    const d = await r.json();
+    if (d.excelPath && !$('excelPath').value) $('excelPath').value = d.excelPath;
+    _prodOutputPath = d.prodOutputPath || d.outputPath || '';
+    _testOutputPath = d.testOutputPath || '';
+    applyOutputDefault();                      // toggle defaults OFF -> prod path
+    // Warn if export file date != today
+    if (d.excelFileDate && d.today && d.excelFileDate !== d.today) {
+      $('exportWarn').classList.add('show');
+    }
+  } catch(e) { /* server may not be up yet */ }
+}
+
+// ── Controls ──────────────────────────────────────────────────────────────────
+function setControls(status, stage) {
+  const running = status === "Running";
+  $('btnRun').disabled    = running;
+  $('btnCancel').disabled = !running;
+  ['excelPath','outputPath','exclude','testMode'].forEach(i => $(i).disabled = running);
+
+  const inPhaseA = running && stage === "PhaseA";
+  $('btnSkip').style.display = inPhaseA ? '' : 'none';
+  $('phaseAPanel').classList.toggle('show', inPhaseA);
+}
+
+// ── Render state ──────────────────────────────────────────────────────────────
+function render(s) {
+  $('statusPill').textContent = s.status;
+  $('statusPill').className   = 'pill ' + s.status;
+  setControls(s.status, s.stage);
+
+  const p  = s.progress || { phase:0, pct:0, msg:'' };
+  const pa = s.phaseA   || { scanned:0, total:0, skipped:false };
+  const inPhaseA = s.status === 'Running' && s.stage === 'PhaseA';
+
+  // Progress bar colour flips for Phase A
+  $('progFill').className = 'progress-fill' + (inPhaseA ? ' phaseA' : '');
+
+  let pct = p.pct || 0;
+  if (inPhaseA && pa.total > 0) pct = Math.round((pa.scanned / pa.total) * 100);
+
+  $('progFill').style.width  = pct + '%';
+  $('progLabel').textContent = pct + '%';
+
+  if (s.status === 'Idle') {
+    $('phaseLine').textContent = 'Idle — no run started.';
+  } else if (inPhaseA) {
+    $('phaseLine').textContent = `Stage: PhaseA  |  PERSH scan ${pa.scanned} / ${pa.total}`;
+  } else {
+    $('phaseLine').textContent =
+      `Stage: ${s.stage || '—'}  |  Phase ${p.phase || 0}/4  |  ${p.msg || ''}`;
+  }
+
+  // Phase A panel details
+  if (inPhaseA) {
+    $('phaseAScanStat').textContent = `Scanned ${pa.scanned} of ${pa.total} rows`;
+    if (pa.total > 0 && pa.scanned < pa.total) {
+      const nextId = null; // server log contains the URL; show instructions
+      $('phaseALink').innerHTML =
+        `<a href="#" onclick="openFirstUrl(); return false;">Open scan tab</a>` +
+        ` &mdash; or navigate manually with <code>?dq=1</code>`;
+    } else if (pa.scanned >= pa.total && pa.total > 0) {
+      $('phaseAScanStat').textContent = `Scan complete (${pa.total} rows). Launching assignment...`;
+      $('phaseALink').innerHTML = '';
+    }
+  }
+
+  $('phaseAStat').textContent = pa.total > 0
+    ? `PERSH scan: ${pa.scanned} / ${pa.total}${pa.skipped ? ' (skipped)' : ''}`
+    : '';
+
+  const of = s.outputFiles || {};
+  $('outFiles').innerHTML =
+    (of.workbook ? `<div><b>Workbook:</b> ${esc(of.workbook)}</div>` : '') +
+    (of.summary  ? `<div><b>Summary:</b>  ${esc(of.summary)}</div>`  : '');
+
+  const log = $('log');
+  const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  log.innerHTML = (s.log || []).map(l => `<div class="l">${esc(l)}</div>`).join('');
+  if (atBottom) log.scrollTop = log.scrollHeight;
+
+  // Auto-shutdown on successful completion. lastStatus is still the PREVIOUS
+  // status here (it's updated below), so this fires once on the Running->Done
+  // edge. The guard flag prevents repeat /shutdown calls if any extra poll
+  // lands before the interval is cleared.
+  if (s.status === 'Done' && lastStatus !== 'Done' && !autoShutDone) {
+    autoShutDone = true;
+    $('phaseLine').textContent = 'Run complete — shutting down server...';
+    fetch('/shutdown', { method:'POST' }).catch(() => {});
+    clearInterval(polling);
+  }
+
+  lastStatus = s.status;
+  lastStage  = s.stage;
+}
+
+function esc(s) { return s.replace(/&/g,'&amp;').replace(/</g,'&lt;'); }
+
+// ── Polling ───────────────────────────────────────────────────────────────────
+async function poll() {
+  try {
+    const r = await fetch('/status', { cache:'no-store' });
+    render(await r.json());
+  } catch(e) {
+    $('phaseLine').textContent = 'Server unreachable — is server.ps1 running?';
+  }
+}
+
+// ── Button handlers ───────────────────────────────────────────────────────────
+$('btnRun').addEventListener('click', async () => {
+  $('btnRun').disabled = true;
+  autoShutDone = false;   // allow auto-shutdown to fire for this new run
+  const payload = {
+    excelPath:  $('excelPath').value.trim(),
+    outputPath: $('outputPath').value.trim(),
+    exclude:    $('exclude').value.trim(),
+    testMode:   $('testMode').checked
+  };
+  try {
+    const r = await fetch('/start', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(payload)
+    });
+    const j = await r.json();
+    if (!j.ok) { alert(j.error || 'Could not start.'); return; }
+    // Store firstUrl in case user wants to open the scan tab manually
+    if (j.firstUrl) window._dqFirstUrl = j.firstUrl;
+  } catch(e) { alert('Start failed: ' + e.message); }
+  poll();
+});
+
+$('btnCancel').addEventListener('click', async () => {
+  if (!confirm('Cancel the current run?')) return;
+  try { await fetch('/cancel', { method:'POST' }); } catch(e) {}
+  poll();
+});
+
+$('btnSkip').addEventListener('click', async () => {
+  if (!confirm('Skip Phase A? PERSH rows will not be flagged.')) return;
+  try { await fetch('/skipPhaseA', { method:'POST' }); } catch(e) {}
+  poll();
+});
+
+$('btnShutdown').addEventListener('click', async () => {
+  if (!confirm('Shut down the server? You will need to re-run START.bat.')) return;
+  try { await fetch('/shutdown', { method:'POST' }); } catch(e) {}
+  $('phaseLine').textContent = 'Server shut down. Re-run START.bat to use again.';
+  clearInterval(polling);
+});
+
+function openFirstUrl() {
+  if (window._dqFirstUrl) window.open(window._dqFirstUrl, '_blank');
+}
+
+// ── Output path / test mode wiring ────────────────────────────────────────────
+// Toggling Test mode swaps the Output field between the prod (Q:) and test
+// folders, unless the user has manually typed their own path.
+$('testMode').addEventListener('change', applyOutputDefault);
+
+// If the user edits the Output field by hand, stop auto-managing it. If they
+// clear it, hand control back to the auto-default.
+$('outputPath').addEventListener('input', () => {
+  _outputUserEdited = $('outputPath').value.trim().length > 0;
+  if (!_outputUserEdited) applyOutputDefault();
+});
+
+// Cancel on tab close during active run
+window.addEventListener('beforeunload', () => {
+  if (lastStatus === 'Running') navigator.sendBeacon('/cancel');
+});
+
+// Start
+loadDefaults();
+polling = setInterval(poll, 1000);
+poll();
+</script>
+</body>
+</html>

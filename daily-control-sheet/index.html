@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Control Sheet — daily run</title>
+<style>
+  :root{
+    --ground:#EEF1F5; --panel:#fff; --ink:#16202E; --muted:#5C6B7F;
+    --rule:#CBD4E0; --rule-strong:#9AA9BC;
+    --entry-bg:#FFF6CC; --entry-edge:#C9A227;
+    --calc:#2C6E31; --calc-bg:#E7F1E6;
+    --flag:#A6321F; --flag-bg:#FBEAE7;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px 96px}
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+  /* ── tape: the control sheet's own top-right block, live ── */
+  .tape{position:sticky;top:0;z-index:10;background:var(--ink);color:#fff;
+        border-bottom:3px solid var(--entry-edge)}
+  .tape-in{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;
+           gap:34px;align-items:flex-end;flex-wrap:wrap}
+  .tape h1{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+           font-weight:600;margin:0 auto 0 0;color:#9FB0C6}
+  .cell{display:flex;flex-direction:column;gap:2px;min-width:76px}
+  .cell span{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#8EA1B8}
+  .cell b{font-family:var(--mono);font-variant-numeric:tabular-nums;
+          font-size:26px;font-weight:600;line-height:1}
+  .cell b.blank{color:#5A6B80}
+  .cell.total b{color:#F4D77A}
+  .cell.total{border-left:1px solid #33445C;padding-left:26px}
+
+  /* ── steps ── */
+  section{background:var(--panel);border:1px solid var(--rule);margin-top:22px}
+  .head{display:flex;align-items:baseline;gap:12px;padding:14px 20px;
+        border-bottom:1px solid var(--rule)}
+  .num{font-family:var(--mono);font-size:12px;color:var(--muted);
+       border:1px solid var(--rule-strong);padding:1px 6px}
+  .head h2{font-size:15px;margin:0;font-weight:600}
+  .head p{margin:0;color:var(--muted);font-size:13px}
+  .body{padding:18px 20px}
+
+  /* ── controls ── */
+  button{font:inherit;font-size:14px;padding:7px 15px;background:var(--ink);
+         color:#fff;border:1px solid var(--ink);cursor:pointer}
+  button:hover:not(:disabled){background:#2A3B52}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--rule-strong)}
+  button.ghost:hover:not(:disabled){background:var(--ground)}
+  button.sm{padding:4px 10px;font-size:12.5px}
+  button .spin{display:inline-block;width:11px;height:11px;margin-right:7px;
+    vertical-align:-1px;border:2px solid currentColor;border-right-color:transparent;
+    border-radius:50%;animation:spin .6s linear infinite}
+  button.ghost .spin{border-color:var(--muted);border-right-color:transparent}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion:reduce){
+    button .spin{animation:none;border-right-color:currentColor;opacity:.5}
+  }
+  input,select{font:inherit;font-size:14px;padding:6px 9px;border:1px solid var(--rule-strong);
+               background:#fff;color:inherit;max-width:100%}
+  input.money,input.count{font-family:var(--mono);text-align:right;
+        background:var(--entry-bg);border-color:var(--entry-edge)}
+  input[type=date]{font-family:var(--mono)}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+
+  /* ── source list ── */
+  .src{border-top:1px solid var(--rule);padding:13px 0}
+  .src:first-child{border-top:0;padding-top:0}
+  .src-top{display:flex;gap:10px;align-items:center;margin-bottom:7px}
+  .src-top strong{font-size:14px}
+  .badge{font-family:var(--mono);font-size:11px;letter-spacing:.05em;
+         text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;
+         display:inline-block;white-space:nowrap}
+  .ok{color:var(--calc);background:var(--calc-bg)}
+  .bad{color:var(--flag);background:var(--flag-bg)}
+  .warn{color:#8A6D0B;background:var(--entry-bg);border-color:var(--entry-edge)}
+  .wait{color:var(--muted)}
+  .path{font-family:var(--mono);font-size:12.5px;width:100%}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:5px}
+
+  /* ── tables ── */
+  table{border-collapse:collapse;width:100%;font-size:13.5px;margin-top:6px}
+  th{text-align:left;font-size:11px;letter-spacing:.07em;text-transform:uppercase;
+     color:var(--muted);font-weight:600;padding:5px 9px;border-bottom:1px solid var(--rule-strong)}
+  td{padding:5px 9px;border-bottom:1px solid var(--rule)}
+  td.n{font-family:var(--mono);font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+  tbody tr:hover{background:var(--ground)}
+  tr.out td:not(:last-child){text-decoration:line-through;color:var(--muted)}
+  tr.out .hint{text-decoration:none}
+  tr.mismatch td{background:var(--flag-bg);color:var(--flag)}
+  tr.copyable{cursor:pointer}
+  tr.copyable:hover td{background:var(--entry-bg)}
+  tr.copyable:active td{background:var(--calc-bg)}
+  /* Already copied — stays marked so you can see where you got to. */
+  tr.done td{background:#FEF7D6}
+  tr.done:hover td{background:var(--entry-bg)}
+  tfoot td{font-weight:600;border-top:1px solid var(--rule-strong);border-bottom:0}
+
+  .bucket{margin-bottom:22px}
+  .bucket h3{font-size:13px;margin:0;display:flex;align-items:baseline;gap:10px}
+  .bucket h3 em{font-style:normal;font-family:var(--mono);color:var(--muted);font-size:12px}
+
+  .note{border-left:3px solid var(--flag);background:var(--flag-bg);padding:11px 14px;
+        font-size:13.5px;margin-top:14px}
+  .note h4{margin:0 0 5px;font-size:13px;color:var(--flag)}
+  .empty{color:var(--muted);font-size:13.5px;padding:6px 0}
+
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:16px}
+  .field{display:flex;flex-direction:column;gap:5px}
+  .field label{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+  .derived{display:block;font-family:var(--mono);background:var(--calc-bg);color:var(--calc);
+           padding:6px 9px;border:1px solid var(--calc);text-align:right}
+
+  .bar{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
+       border-top:1px solid var(--rule-strong);padding:12px 24px}
+  .bar-in{max-width:1120px;margin:0 auto;display:flex;gap:14px;align-items:center}
+  .status{font-size:13px;color:var(--muted);margin-right:auto}
+  .toggle{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer}
+  .toggle input{accent-color:var(--entry-edge)}
+  .result{border-left:3px solid var(--calc);background:var(--calc-bg);padding:11px 14px;
+          font-size:13.5px;margin-top:14px}
+  .result.warn{border-left-color:var(--entry-edge);background:var(--entry-bg)}
+  .result.bad{border-left-color:var(--flag);background:var(--flag-bg)}
+  .result h4{margin:0 0 5px;font-size:13px}
+  .result code{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+
+  /* Email preview — the tables are styled to survive a paste into Outlook,
+     so they carry inline styles rather than classes. */
+  .envelope{border:1px solid var(--rule);border-bottom:0;background:var(--ground);
+            padding:10px 14px;font-size:13px}
+  .envelope b{color:var(--muted);font-weight:600;letter-spacing:.04em;
+              text-transform:uppercase;font-size:11px;margin-right:6px}
+  #email{border:1px solid var(--rule);background:#fff;padding:18px 20px;
+         font-family:Calibri,"Segoe UI",sans-serif;font-size:15px;color:#000}
+  #email p{margin:0 0 12px}
+  #email table{border-collapse:collapse;margin:6px 0 16px;width:auto}
+  #email td{border:1px solid #000;padding:2px 7px;font-family:Calibri,sans-serif;
+            font-size:14px;white-space:nowrap}
+  @media (prefers-reduced-motion:no-preference){
+    .cell b{transition:color .25s ease}
+  }
+</style>
+</head>
+<body>
+
+<div class="tape">
+  <div class="tape-in">
+    <h1>Control sheet</h1>
+    <div class="cell"><span>UMB checks</span><b id="t-umb" class="blank">—</b></div>
+    <div class="cell"><span>Remote dep.</span><b id="t-rdc" class="blank">—</b></div>
+    <div class="cell"><span>ACHs &amp; wires</span><b id="t-ach" class="blank">—</b></div>
+    <div class="cell"><span>Trade tickets</span><b id="t-tt" class="blank">—</b></div>
+    <div class="cell total"><span>Total deposit</span><b id="t-total" class="blank">—</b></div>
+  </div>
+</div>
+
+<div class="wrap">
+
+  <section>
+    <div class="head"><span class="num">1</span><h2>Find today's files</h2>
+      <p>Paths shift a little each day — correct anything that looks wrong.</p></div>
+    <div class="body">
+      <div class="row" style="margin-bottom:16px">
+        <label for="date" style="font-size:13px;color:var(--muted)">Deposit date</label>
+        <input type="date" id="date">
+        <button id="locate">Find files</button>
+        <button id="openAll" class="ghost" disabled>Open all in viewer</button>
+      </div>
+      <div id="sources"><p class="empty">Pick a date and choose Find files.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">2</span><h2>Read the bank PDFs</h2>
+      <p>Loans and trade tickets from one, lockbox ACHs from the other.</p></div>
+    <div class="body">
+      <button id="parse" disabled>Read both PDFs</button>
+      <div id="parsed"><p class="empty">Nothing read yet.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">3</span><h2>Afternoon report</h2>
+      <p>ACH totals, the in-house ACHs to back out, and today's wires.</p></div>
+    <div class="body"><div id="afternoon"><p class="empty">Nothing read yet.</p></div></div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">4</span><h2>Type in what isn't in a file</h2>
+      <p>Only the emailed scan needs keying — everything else is read from a file.</p></div>
+    <div class="body">
+      <h3 style="font-size:13px;margin:0">From the check file's name</h3>
+      <p class="hint" style="margin:2px 0 12px">Read straight off the filename, so there's nothing to type.
+        The count lands on the sheet as UMB Checks, the amount as LB 2999 Checks.</p>
+      <div class="grid">
+        <div class="field"><label>Checks — count</label>
+          <output class="derived" id="umbCount">—</output></div>
+        <div class="field"><label>Checks — amount</label>
+          <output class="derived" id="umbAmount">—</output></div>
+      </div>
+
+      <h3 style="font-size:13px;margin:22px 0 0">Remote deposits — from the emailed scan</h3>
+      <p class="hint" style="margin:2px 0 12px">Arrives between 2 and 3:30. Nothing is computed for these.</p>
+      <div class="grid">
+        <div class="field"><label for="rdcCount">Remote deposits — count</label>
+          <input class="count" id="rdcCount" inputmode="numeric"></div>
+        <div class="field"><label for="rdcAmount">Remote deposits — amount</label>
+          <input class="money" id="rdcAmount" inputmode="decimal"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">5</span><h2>Check the totals</h2>
+      <p>Every figure that will land on the sheet.</p></div>
+    <div class="body"><div id="summary"><p class="empty">Read the PDFs first.</p></div>
+      <div id="target" class="hint" style="margin-top:14px"></div>
+      <div id="result"></div></div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">6</span><h2>Remittance files</h2>
+      <p>Matched on amount, with the payer name breaking ties. Copy a path straight into the file picker.</p></div>
+    <div class="body">
+      <p class="hint" style="margin:0 0 14px;max-width:70ch">
+        Scored out of 100 — an exact amount is worth 70, the payer name up to 30, so the
+        number tells you which parts agreed.
+        <span class="badge ok">certain</span> amount and name both match.
+        <span class="badge ok">amount matches</span> right amount, but the name doesn't
+        resemble it — worth a glance.
+        <span class="badge warn">name only</span> nothing in the folder has this amount.
+      </p>
+      <button id="findRemit" disabled>Look them up again</button>
+      <div id="remit"><p class="empty">Filled in automatically once the workbook step runs.</p></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">7</span><h2>Email</h2>
+      <p>Copy the whole thing at once — the tables keep their formatting in Outlook.</p></div>
+    <div class="body">
+      <div class="row" style="margin-bottom:16px">
+        <button id="copyEmail" disabled>Copy the email</button>
+        <button id="copyPlain" class="ghost" disabled>Copy as plain text</button>
+      </div>
+      <div id="emailWrap"><p class="empty">Read the files first.</p></div>
+    </div>
+  </section>
+
+</div>
+
+<div class="bar"><div class="bar-in">
+  <span class="status" id="status">Ready.</span>
+  <label class="toggle"><input type="checkbox" id="testMode"> Test run — don't write to the share</label>
+  <button id="generate" class="ghost" disabled>Build the workbook</button>
+</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = {located:null, parsed:null, afternoon:null, remit:null,
+               copied:new Set(), computed:{}};
+
+const LABELS = {
+  loans_tt:"Loans + trade tickets (PDF)",
+  ach:"ACHs (PDF)",
+  afternoon_report:"ACHs afternoon report (Excel)",
+  check_total:"Check total (filename only)",
+  control_sheet:"Control sheet (today's workbook)"
+};
+const BUCKETS = {
+  loan_pulls:"Loan pulls", trade_tickets:"Trade tickets", ach_lockbox:"Lockbox ACHs"
+};
+
+const money = n => n==null ? "—" :
+  n.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+const num = v => {const n = parseFloat(String(v).replace(/[^0-9.\-]/g,"")); return isNaN(n)?null:n;};
+const esc = s => String(s??"").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const say = m => $("status").textContent = m;
+
+/* Show a spinner on a button for as long as its work is running. */
+async function working(btn, label, fn){
+  const original = btn.innerHTML, wasDisabled = btn.disabled;
+  btn.innerHTML = `<span class="spin"></span>${label}`;
+  btn.disabled = true;
+  try { return await fn(); }
+  finally { btn.innerHTML = original; btn.disabled = wasDisabled; }
+}
+
+$("date").value = new Date().toISOString().slice(0,10);
+
+/* ── 1. locate ─────────────────────────────────────────────── */
+$("locate").onclick = () => working($("locate"), "Looking…", async () => {
+  say("Looking for files…");
+  const r = await fetch(`/api/locate?date=${$("date").value}`);
+  const data = await r.json();
+  if (data.error) return say(data.error);
+  state.located = data;
+  renderSources(data);
+  $("openAll").disabled = false;
+  $("parse").disabled = !(data.sources.loans_tt.path && data.sources.ach.path);
+  $("findRemit").disabled = !data.sources.ach.path;
+
+  const ct = data.sources.check_total.parsed || {};
+  state.computed = {umbCount: ct.count ?? null, umbAmount: ct.amount ?? null};
+  $("umbCount").textContent = ct.count != null ? String(ct.count) : "—";
+  $("umbAmount").textContent = ct.amount != null ? money(ct.amount) : "—";
+  const out = data.output || {};
+  $("target").innerHTML = out.error
+    ? `<span style="color:var(--flag)">${esc(out.error)}</span>`
+    : `Will save to <code style="font-family:var(--mono)">${esc(out.path||"")}</code>${
+        out.exists?` — <strong style="color:var(--entry-edge)">this already exists, so we'll compare instead of writing</strong>`:""}`;
+  say(`Searched ${data.base}`);
+  refresh();
+});
+
+function renderSources(data){
+  // The control sheet isn't a source — it's the output — but it belongs in
+  // this list so "Open all" can pull it up on days it already exists.
+  const out = data.output || {};
+  const all = {...data.sources, control_sheet: {
+    path: out.exists ? out.path : "",
+    folder: out.folder || "",
+    candidates: [],
+    confident: !!out.exists,
+    error: out.error ? out.error
+         : out.exists ? null
+         : "Not there yet — it gets created when you build the workbook.",
+  }};
+
+  $("sources").innerHTML = Object.entries(all).map(([key, s]) => {
+    const found = !!s.path;
+    const badge = key === "control_sheet"
+      ? (found ? ["ok","found"] : ["warn","not detected"])
+      : !found ? ["bad","not found"]
+      : s.confident ? ["ok","found"]
+      : ["warn","check date"];
+    const options = s.candidates.map(c =>
+      `<option value="${esc(c.path)}" ${c.path===s.path?"selected":""}>${esc(c.name)}</option>`).join("");
+    return `<div class="src">
+      <div class="src-top">
+        <strong>${LABELS[key]}</strong>
+        <span class="badge ${badge[0]}">${badge[1]}</span>
+        ${found && key!=="check_total"?`<button class="sm ghost" data-open="${esc(s.path)}">Open</button>`:""}
+      </div>
+      <input class="path" data-path="${key}" value="${esc(s.path||"")}" placeholder="${esc(s.folder)}">
+      ${s.candidates.length?`<div class="hint">Other files here:
+        <select data-pick="${key}"><option value="">—</option>${options}</select></div>`:""}
+      ${s.error?`<div class="hint" style="color:${badge[0]==="bad"?"var(--flag)":"#8A6D0B"}">${esc(s.error)}</div>`:""}
+    </div>`;
+  }).join("");
+
+  $("sources").querySelectorAll("[data-open]").forEach(b =>
+    b.onclick = () => openPaths([b.dataset.open]));
+  $("sources").querySelectorAll("[data-pick]").forEach(sel =>
+    sel.onchange = () => {
+      if(!sel.value) return;
+      const input = $("sources").querySelector(`[data-path="${sel.dataset.pick}"]`);
+      input.value = sel.value;
+      if (state.located.sources[sel.dataset.pick])
+        state.located.sources[sel.dataset.pick].path = sel.value;
+      $("parse").disabled = !(currentPath("loans_tt") && currentPath("ach"));
+      $("findRemit").disabled = !currentPath("ach");
+      if (sel.dataset.pick === "check_total") refreshCheckFigures();
+    });
+  // Typing a path by hand has to update the figures too, not just picking one.
+  const checkInput = $("sources").querySelector('[data-path="check_total"]');
+  if (checkInput) checkInput.onchange = refreshCheckFigures;
+}
+
+/* The check count and amount are read out of the filename, so they have to be
+   re-derived whenever that file changes — not just on the first lookup. */
+async function refreshCheckFigures(){
+  const path = currentPath("check_total");
+  let parsed = {count: null, amount: null};
+  if (path) {
+    try {
+      const r = await fetch("/api/checkname",{method:"POST",
+        headers:{"Content-Type":"application/json"}, body:JSON.stringify({path})});
+      parsed = await r.json();
+    } catch { /* leave them blank rather than showing a stale figure */ }
+  }
+  state.computed = {umbCount: parsed.count ?? null, umbAmount: parsed.amount ?? null};
+  $("umbCount").textContent = parsed.count != null ? String(parsed.count) : "—";
+  $("umbAmount").textContent = parsed.amount != null ? money(parsed.amount) : "—";
+  refresh();
+}
+
+const currentPath = key => {
+  const el = $("sources").querySelector(`[data-path="${key}"]`);
+  return el ? el.value.trim() : "";
+};
+
+async function openPaths(paths){
+  const r = await fetch("/api/open",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({paths})});
+  const d = await r.json();
+  say(d.failed.length ? `Could not open: ${d.failed.join(", ")}` : `Opened ${d.opened.length} file(s).`);
+}
+
+// The check file is never read — its name is the data — so it stays shut.
+// The control sheet only opens on days it already exists.
+$("openAll").onclick = () => working($("openAll"), "Opening…", () => openPaths(
+  ["loans_tt","ach","afternoon_report","control_sheet"].map(currentPath).filter(Boolean)));
+
+/* ── 2. parse ──────────────────────────────────────────────── */
+$("parse").onclick = () => working($("parse"), "Reading…", async () => {
+  say("Reading files…");
+  const r = await fetch("/api/parse",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({loans_tt:currentPath("loans_tt"), ach:currentPath("ach"),
+                         afternoon_report:currentPath("afternoon_report")})});
+  const data = await r.json();
+  state.parsed = data;
+  state.afternoon = data.afternoon || null;
+  renderParsed(data);
+  renderAfternoon();
+  refresh();
+  const errs = Object.keys(data.errors||{});
+  say(errs.length ? `Could not read: ${errs.join(", ")}` : "All files read.");
+});
+
+/* ── afternoon report ──────────────────────────────────────── */
+function renderAfternoon(){
+  const a = state.afternoon;
+  if (!a) return $("afternoon").innerHTML = `<p class="empty">Not read.</p>`;
+
+  const bad = k => a.checks[k] ? "" :
+    `<div class="note"><h4>Doesn't reconcile</h4>The report's own total disagrees with the rows we read. Check before using.</div>`;
+
+  const pm = a.house.map(e =>
+    `<tr><td>${esc(e.name)}</td><td class="n">${money(e.amount)}</td></tr>`).join("");
+
+  const wires = a.wires.map((w,idx) => `
+    <tr class="${w.include?"":"out"}">
+      <td><strong>${esc(w.sender)}</strong>
+        ${w.excluded_for?`<span class="badge bad" style="margin-left:8px">${esc(w.excluded_for)}</span>`:""}
+        <div class="hint" style="margin:2px 0 0">${esc(w.detail||"")}${
+          w.found_on&&w.found_on!=="ORG"?` — read from ${esc(w.found_on)}, no ORG line`:""}</div></td>
+      <td class="n">${money(w.amount)}</td>
+      <td style="text-align:right"><button class="sm ghost" data-wire="${idx}">${
+        w.include?"Leave out":"Put back"}</button></td>
+    </tr>`).join("");
+
+  $("afternoon").innerHTML = `
+    ${bad("ach_rows_match_total")}
+    <div class="bucket">
+      <h3>ACHs received <em>${a.ach.items} items · reconciles with the report's own total</em></h3>
+      <table><tbody>
+        <tr><td>Total ACHs received</td><td class="n">${money(a.ach.total)}</td></tr>
+      </tbody></table>
+    </div>
+
+    <div class="bucket">
+      <h3>In-house ACHs to back out <em>${a.house.length} row${a.house.length===1?"":"s"}</em></h3>
+      <table><thead><tr><th>Name</th><th style="text-align:right">Amount</th></tr></thead>
+      <tbody>${pm||`<tr><td colspan="2" class="empty">None today</td></tr>`}</tbody>
+      <tfoot><tr><td>Total</td><td class="n">${money(a.house_sum)}</td></tr></tfoot></table>
+    </div>
+
+    ${bad("wire_rows_match_total")}
+    <div class="bucket">
+      <h3>Wires <em>${a.wires.length} found · ${wiresIn().length} going on the sheet</em></h3>
+      <table><thead><tr><th>Sender</th><th style="text-align:right">Amount</th>
+        <th style="text-align:right">In or out</th></tr></thead>
+      <tbody>${wires||`<tr><td colspan="3" class="empty">None today</td></tr>`}</tbody>
+      <tfoot><tr><td>Included</td><td class="n">${money(wireSum())}</td><td></td></tr></tfoot></table>
+    </div>`;
+
+  $("afternoon").querySelectorAll("[data-wire]").forEach(b => b.onclick = () => {
+    const w = state.afternoon.wires[+b.dataset.wire];
+    w.include = !w.include;
+    renderAfternoon(); refresh();
+  });
+}
+
+const wiresIn = () => (state.afternoon?.wires||[]).filter(w => w.include);
+const wireSum = () => wiresIn().reduce((t,w) => t + (w.amount||0), 0);
+
+function renderParsed(data){
+  let html = "";
+  for (const [key, msg] of Object.entries(data.errors||{}))
+    html += `<div class="note"><h4>${LABELS[key]}</h4>${esc(msg)}</div>`;
+
+  for (const [key, src] of Object.entries(data.sources||{})){
+    if (src.integrity && !src.integrity.ok)
+      html += `<div class="note"><h4>${LABELS[key]} — rows may be missing</h4>
+        ${src.integrity.problems.map(esc).join("<br>")}</div>`;
+    for (const [name, b] of Object.entries(src.buckets)) html += bucketTable(name, b);
+    if (src.skipped.length)
+      html += rowNote(`${LABELS[key]} — left out, status is not Completed`, src.skipped);
+    if (src.unmatched.length)
+      html += rowNote(`${LABELS[key]} — Completed, but not one of this file's categories`, src.unmatched);
+  }
+  $("parsed").innerHTML = html || `<p class="empty">Nothing came back.</p>`;
+}
+
+function bucketTable(name, b){
+  if (!b.rows.length) return `<div class="bucket"><h3>${BUCKETS[name]||name}
+    <em>nothing today</em></h3></div>`;
+  return `<div class="bucket">
+    <h3>${BUCKETS[name]||name} <em>${b.count} row${b.count===1?"":"s"}${
+      b.items!==b.count?` · ${b.items} items`:""}</em></h3>
+    <table><thead><tr><th>Payment no.</th><th>Reference</th><th>Recipient</th>
+      <th style="text-align:right">Amount</th></tr></thead>
+    <tbody>${b.rows.map(r=>`<tr><td class="n">${esc(r.payment_no)}</td>
+      <td>${esc(r.name_ref)}</td><td>${esc(r.recipient)}</td>
+      <td class="n">${money(r.amount)}</td></tr>`).join("")}</tbody>
+    <tfoot><tr><td colspan="3">Total</td><td class="n">${money(b.sum)}</td></tr></tfoot>
+    </table></div>`;
+}
+
+function rowNote(title, rows){
+  return `<div class="note"><h4>${title} — ${rows.length}</h4>
+    <table><tbody>${rows.map(r=>`<tr><td class="n">${esc(r.payment_no)}</td>
+      <td>${esc(r.name_ref)}</td><td>${esc(r.status)}</td><td>${esc(r.recipient)}</td>
+      <td class="n">${money(r.amount)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+
+/* ── 3 & 4. totals ─────────────────────────────────────────── */
+["rdcCount","rdcAmount"].forEach(id => $(id).oninput = refresh);
+
+function collect(){
+  const b = {};
+  for (const src of Object.values(state.parsed?.sources||{}))
+    for (const [name, bucket] of Object.entries(src.buckets)) b[name] = bucket;
+  const g = n => b[n] || {count:0, items:0, sum:0, rows:[]};
+  // Check count and amount come from the filename only — not editable.
+  const umbCount = state.computed.umbCount ?? null,
+        umbAmount = state.computed.umbAmount ?? null,
+        rdcCount = num($("rdcCount").value),
+        rdcAmount = num($("rdcAmount").value);
+  const a = state.afternoon;
+  // The sheet's own arithmetic: statement total, less in-house ACHs,
+  // plus the wires we kept, plus the pulled ACHs from the ACH PDF.
+  const achAdjusted = a
+    ? (a.ach.total||0) - (a.house_sum||0) + wireSum() + g("ach_lockbox").sum
+    : g("ach_lockbox").sum;
+  const achItems = a
+    ? (a.ach.items||0) - a.house.length + wiresIn().length + g("ach_lockbox").items
+    : g("ach_lockbox").items;
+  return {
+    loan:g("loan_pulls"), tt:g("trade_tickets"), ach:g("ach_lockbox"),
+    achAdjusted, achItems,
+    umbCount, umbAmount, rdcCount, rdcAmount,
+    total:(g("loan_pulls").sum + g("trade_tickets").sum + achAdjusted
+           + (umbAmount||0) + (rdcAmount||0))
+  };
+}
+
+function refresh(){
+  const s = collect(), parsed = !!state.parsed, a = state.afternoon;
+  set("t-umb", s.umbCount); set("t-rdc", s.rdcCount);
+  set("t-ach", parsed ? s.achItems : null); set("t-tt", parsed ? s.tt.items : null);
+  set("t-total", parsed ? money(s.total) : null);
+  $("generate").disabled = !parsed;
+  renderEmail();
+
+  $("summary").innerHTML = !parsed ? `<p class="empty">Read the PDFs first.</p>` :
+   `<table><thead><tr><th>Goes on the sheet as</th><th>Where it came from</th>
+      <th style="text-align:right">Items</th><th style="text-align:right">Amount</th></tr></thead>
+    <tbody>
+      ${line("Loan pulls","Loans + TT PDF",s.loan.items,s.loan.sum)}
+      ${line("Trade tickets","Loans + TT PDF",s.tt.items,s.tt.sum)}
+      ${a?line("&nbsp;&nbsp;ACHs received","Afternoon report",a.ach.items,a.ach.total):""}
+      ${a?line("&nbsp;&nbsp;less in-house ACHs","Afternoon report",-a.house.length,-a.house_sum):""}
+      ${a?line("&nbsp;&nbsp;plus wires kept","Afternoon report",wiresIn().length,wireSum()):""}
+      ${line("&nbsp;&nbsp;plus pulled ACHs","ACH PDF",s.ach.items,s.ach.sum)}
+      ${line("<strong>ACHs &amp; wires</strong>","",s.achItems,s.achAdjusted)}
+      ${line("UMB checks / LB 2999 checks","Check file name",s.umbCount,s.umbAmount)}
+      ${line("Remote deposits","Emailed scan",s.rdcCount,s.rdcAmount)}
+    </tbody>
+    <tfoot><tr><td colspan="2">Total deposit</td>
+      <td class="n">${(s.loan.items+s.tt.items+s.achItems+(s.umbCount||0)+(s.rdcCount||0))}</td>
+      <td class="n">${money(s.total)}</td></tr></tfoot></table>`;
+}
+
+const line = (label, from, count, amount) =>
+  `<tr><td>${label}</td><td style="color:var(--muted)">${from}</td>
+   <td class="n">${count==null?"—":count}</td><td class="n">${money(amount)}</td></tr>`;
+
+function set(id, v){
+  const el = $(id);
+  el.textContent = v==null || v==="" ? "—" : v;
+  el.classList.toggle("blank", v==null || v==="");
+}
+
+/* ── 6. remittance files ───────────────────────────────────── */
+async function findRemittance(){
+  const ach = currentPath("ach");
+  if (!ach) return;
+  const r = await fetch("/api/remittance",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({date:$("date").value, ach})});
+  state.remit = await r.json();
+  renderRemit();
+  return state.remit;
+}
+
+$("findRemit").onclick = () => working($("findRemit"), "Looking…", async () => {
+  const d = await findRemittance();
+  say(!d ? "Find the files first."
+     : d.error ? d.error
+     : `${d.rows.filter(x=>x.match).length} of ${d.rows.length} matched.`);
+});
+
+function renderRemit(){
+  const d = state.remit;
+  if (!d) return;
+  if (d.error) return $("remit").innerHTML = `<div class="note"><h4>Couldn't look them up</h4>${esc(d.error)}</div>`;
+
+  // Score is 70 for an exact amount plus up to 30 for the name, so the number
+  // says which parts agreed. Labels reflect that rather than hedging.
+  const band = c => c >= 90 ? ["ok","certain"]
+                  : c >= 70 ? ["ok","amount matches"]
+                  : c > 0 ? ["warn","name only — check"]
+                  : ["bad","not found"];
+
+  const rows = d.rows.map((x,i) => {
+    const [cls,label] = band(x.confidence);
+    const done = state.copied.has(x.payment_no);
+    const also = x.match?.also?.length
+      ? `<div class="hint" style="margin-top:2px">also saved as ${
+          x.match.also.map(a=>esc(a.split(".").pop())).join(", ")}</div>` : "";
+    return `<tr class="${x.match?"copyable":""}${done?" done":""}"${
+        x.match ? ` data-row="${i}" title="Click anywhere to copy the path"` : ""}>
+      <td>${esc(x.recipient)}<span class="badge ${cls}" style="margin-left:8px">${label}${
+        x.confidence ? ` · ${x.confidence}` : ""}</span></td>
+      <td class="n">${money(x.amount)}</td>
+      <td>${x.match ? `<span style="font-family:var(--mono);font-size:12.5px">${esc(x.match.name)}</span>${also}`
+                    : `<span class="hint">no file in the folder has this amount</span>`}</td>
+      <td style="text-align:right">${x.match
+        ? `<button class="sm ghost" data-copy="${i}">${done?"Copy again":"Copy path"}</button>` : ""}</td></tr>`;
+  }).join("");
+
+  $("remit").innerHTML = `
+    <p class="hint" style="margin:12px 0 4px">Folder: <span style="font-family:var(--mono)">${esc(d.folder||"")}</span>
+      — ${d.file_count} file${d.file_count===1?"":"s"}</p>
+    <table><thead><tr><th>ACH</th><th style="text-align:right">Amount</th>
+      <th>Remittance file</th><th></th></tr></thead><tbody>${rows}</tbody></table>
+    ${d.unparsed?.length ? `<div class="note"><h4>Names we couldn't read an amount from — ${d.unparsed.length}</h4>
+      ${d.unparsed.map(esc).join("<br>")}</div>` : ""}
+    ${d.other_files?.length ? `<details style="margin-top:14px">
+      <summary class="hint" style="cursor:pointer">Other ${d.other_files.length} files in this folder</summary>
+      <div class="hint" style="margin-top:6px;font-family:var(--mono);font-size:12px">
+        ${d.other_files.map(esc).join("<br>")}</div></details>` : ""}`;
+
+  async function copyRow(i){
+    const row = state.remit.rows[i];
+    if (!row?.match) return;
+    const btn = $("remit").querySelector(`[data-copy="${i}"]`);
+    try {
+      await navigator.clipboard.writeText(row.match.path);
+      // Mark it done so you can see where you got to in the list.
+      state.copied.add(row.payment_no);
+      $("remit").querySelector(`[data-row="${i}"]`)?.classList.add("done");
+      if (btn) btn.textContent = "Copied";
+      say("Path copied.");
+    } catch { say("Couldn't copy — " + row.match.path); }
+    if (btn) setTimeout(() => { btn.textContent = "Copy again"; }, 1400);
+  }
+
+  $("remit").querySelectorAll("[data-row]").forEach(tr =>
+    tr.onclick = () => copyRow(+tr.dataset.row));
+  // The button keeps its own handler so it stays reachable by keyboard;
+  // stopping propagation prevents the row firing a second copy underneath it.
+  $("remit").querySelectorAll("[data-copy]").forEach(b => b.onclick = e => {
+    e.stopPropagation();
+    copyRow(+b.dataset.copy);
+  });
+}
+
+/* ── 7. email ──────────────────────────────────────────────── */
+const RECIPIENTS = {to: "Recon, Distributions", cc: "Lockbox, Al Close"};
+
+const usd = n => n == null ? "N/A" : "$" + money(n);
+const bold = v => `<strong>${v}</strong>`;
+
+/* Rebuilds the block as it sits on the sheet, so a paste into Outlook looks
+   like a copy out of Excel. Inline styles only — Outlook discards classes. */
+function sheetTable(entries, label){
+  if (!entries.length) return "";
+  const date = new Date($("date").value + "T00:00:00")
+    .toLocaleDateString("en-US",{month:"2-digit",day:"2-digit",year:"2-digit"});
+  const cell = "border:1px solid #000;padding:2px 7px;font-family:Calibri,sans-serif;font-size:14px;white-space:nowrap";
+  const rows = entries.map((e,i) => `<tr>
+    <td style="${cell};text-align:center">${i+1}</td>
+    <td style="${cell}">${label} (${esc(e.name||"")})</td>
+    <td style="${cell};text-align:center">${date}</td>
+    <td style="${cell};text-align:right">$&nbsp;&nbsp;${money(e.amount)}</td>
+    <td style="${cell}">&nbsp;</td>
+    <td style="${cell};text-align:right;background:#FFFF00">$&nbsp;&nbsp;${money(e.amount)}</td>
+  </tr>`).join("");
+  return `<table style="border-collapse:collapse;margin:6px 0 16px">${rows}</table>`;
+}
+
+function renderEmail(){
+  if (!state.parsed) return $("emailWrap").innerHTML = `<p class="empty">Read the files first.</p>`;
+  const s = collect();
+
+  // Line 1 is E42 on the sheet: ACHs & wires, remote deposits, LB 2999.
+  const previousDay = (s.achAdjusted||0) + (s.rdcAmount||0) + (s.umbAmount||0);
+  const loans = state.parsed.sources?.loans_tt?.buckets?.loan_pulls?.rows || [];
+  const tickets = state.parsed.sources?.loans_tt?.buckets?.trade_tickets?.rows || [];
+  const asEntry = r => ({name: r.recipient, amount: r.amount});
+
+  const body = `
+<p>Hello Team,</p>
+<p>Recon, here are the figures for the Lockbox Red Folder.<br>
+Distributions, please confirm # 3</p>
+<p>1. Previous Day Checks/ACHs/Wires deposited: ${bold(usd(previousDay))}</p>
+<p>2. Current Day Trade Ticket ACHs deposited: ${bold(usd(s.tt.sum))}</p>
+${sheetTable(tickets.map(asEntry), "CURRENT DATE TRADE TICKET")}
+<p>3. Current day ACH LOAN PULLS deposited: ${bold(loans.length ? usd(s.loan.sum) : "N/A")}</p>
+${sheetTable(loans.map(asEntry), "CURRENT DATE LOAN PULL")}
+<p>4. Total: ${bold(usd(s.total))}</p>
+<p>Thank you,</p>`;
+
+  $("emailWrap").innerHTML = `
+    <div class="envelope"><b>To</b>${RECIPIENTS.to} &nbsp;&nbsp; <b>Cc</b>${RECIPIENTS.cc}</div>
+    <div id="email">${body}</div>`;
+  $("copyEmail").disabled = false;
+  $("copyPlain").disabled = false;
+}
+
+/* Selecting the node and copying preserves the rich formatting, which
+   writeText would strip. */
+$("copyEmail").onclick = () => {
+  const node = $("email");
+  if (!node) return;
+  const range = document.createRange();
+  range.selectNodeContents(node);
+  const sel = window.getSelection();
+  sel.removeAllRanges(); sel.addRange(range);
+  const ok = document.execCommand("copy");
+  sel.removeAllRanges();
+  say(ok ? "Email copied — paste straight into Outlook." : "Couldn't copy; select it by hand.");
+};
+
+$("copyPlain").onclick = async () => {
+  const node = $("email");
+  if (!node) return;
+  const text = node.innerText.replace(/\n{3,}/g, "\n\n").trim();
+  try { await navigator.clipboard.writeText(text); say("Copied as plain text."); }
+  catch { say("Couldn't copy; select it by hand."); }
+};
+
+/* ── 5. generate ───────────────────────────────────────────── */
+$("generate").onclick = () => working($("generate"), "Building…", async () => {
+  say("Building the workbook…");
+  const s = collect();
+  const r = await fetch("/api/generate",{method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({
+      date: $("date").value,
+      loans_tt: currentPath("loans_tt"), ach: currentPath("ach"),
+      afternoon_report: currentPath("afternoon_report"),
+      // Wires are identified by their row in the report, not by position.
+      dropped_wires: (state.afternoon?.wires||[]).filter(w=>!w.include).map(w=>w.row),
+      remote_deposit_amount: s.rdcAmount, remote_deposit_count: s.rdcCount,
+      umb_check_count: s.umbCount, lb2999_amount: s.umbAmount,
+      test_mode: $("testMode").checked,
+    })});
+  const d = await r.json();
+  renderResult(d);
+  say(d.message || "Done.");
+
+  // By this point the remittance files have all landed, so look them up
+  // without making it a separate click.
+  if (d.status !== "error") {
+    const remit = await findRemittance();
+    if (remit && !remit.error) {
+      const hit = remit.rows.filter(x => x.match).length;
+      say(`${d.message || "Done."} Remittance: ${hit} of ${remit.rows.length} matched.`);
+    }
+  }
+});
+
+function renderResult(d){
+  const dl = d.download
+    ? `<p style="margin:8px 0 0"><a href="${d.download}" download>Download the workbook</a></p>` : "";
+
+  if (d.status === "diff"){
+    const rows = d.diff.rows.map(r => {
+      const detail = (r.only_ours?.length || r.only_theirs?.length)
+        ? `<div class="hint" style="margin:3px 0 0">${
+            r.only_ours?.length ? `only ours: ${r.only_ours.map(money).join(", ")}` : ""}${
+            r.only_ours?.length && r.only_theirs?.length ? " · " : ""}${
+            r.only_theirs?.length ? `only theirs: ${r.only_theirs.map(money).join(", ")}` : ""}</div>`
+        : "";
+      const counts = r.ours_count!=null ? ` <span class="hint">(${r.ours_count} vs ${r.theirs_count})</span>` : "";
+      return `
+      <tr class="${r.same?"":"mismatch"}"><td>${esc(r.what.replace(/_/g," "))}${counts}${detail}</td>
+        <td class="n">${esc(String(r.cell))}</td>
+        <td class="n">${money(r.ours_total ?? r.ours)}</td>
+        <td class="n">${money(r.theirs_total ?? r.theirs)}</td>
+        <td>${r.same?"same":"<strong>differs</strong>"}</td></tr>`;
+    }).join("");
+    return $("result").innerHTML = `
+      <div class="result ${d.diff.matches?"":"bad"}">
+        <h4>${d.diff.matches?"Their sheet matches ours":"Their sheet differs from ours"}</h4>
+        A workbook already exists, so nothing was written to it.
+        <code>${esc(d.target.path)}</code>
+        <table style="margin-top:10px"><thead><tr><th>What</th><th style="text-align:right">Cells</th>
+          <th style="text-align:right">Ours</th><th style="text-align:right">Theirs</th><th></th></tr></thead>
+        <tbody>${rows}</tbody></table>${dl}</div>`;
+  }
+
+  const kind = {written:"", test:"warn", no_target:"bad", overflow:"bad", error:"bad"}[d.status] ?? "warn";
+  const head = {written:"Written to the share", test:"Test run — nothing written",
+                no_target:"Couldn't work out where to save it",
+                overflow:"Too many rows for the sheet", error:"Something went wrong"}[d.status] || "Done";
+  $("result").innerHTML = `<div class="result ${kind}"><h4>${head}</h4>
+    ${esc(d.message||"")}${d.written_to?`<br><code>${esc(d.written_to)}</code>`:""}${dl}</div>`;
+}
+</script>
+</body>
+</html>

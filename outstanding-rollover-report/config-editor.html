@@ -1,0 +1,322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RO Report Generator - Configuration</title>
+    <!--
+        CHANGELOG (this revision):
+        - Adapted to new config.json structure:
+            * tradingPlatform.filters.targetProductTypes renders automatically (array)
+            * pershing.filters.sourceCompanyKeyword now renders as a single text
+              input (string filter values were previously skipped silently)
+        - FIXED: clicking "+ Add" / remove on any list wiped unsaved edits in
+          other fields. Cause: add/remove helpers re-rendered from the stale
+          in-memory config without first collecting DOM values. All mutating
+          helpers now call collectChanges() before mutating + re-rendering.
+        - FIXED: values containing quotes/ampersands could break the rendered
+          HTML attributes (e.g. company names with " or &). All injected
+          values are now attribute-escaped.
+        - FIXED: hex code label next to Red/Blue color pickers now live-updates
+          when the color is changed.
+        - Sheet header now shows the config key next to the display name so
+          it's clear which JSON section you're editing.
+    -->
+    <style>
+        /* CSS remains largely the same, cleaned up slightly */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: #f0f2f5; padding: 20px; }
+        .container { max-width: 1000px; margin: 0 auto; background: white; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); overflow: hidden; }
+        header { background: #4a90e2; color: white; padding: 20px; text-align: center; }
+        .actions { display: flex; gap: 10px; padding: 20px; background: #fafafa; border-bottom: 1px solid #eee; align-items: center; }
+        .btn { padding: 10px 20px; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-primary { background: #4a90e2; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .status-tag { margin-left: auto; font-size: 0.85em; color: #666; }
+        .sheet-section { margin: 20px; border: 1px solid #ddd; border-radius: 8px; }
+        .sheet-header { padding: 15px; background: #f8f9fa; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; }
+        .sheet-key { font-size: 0.8em; color: #888; font-weight: normal; margin-left: 8px; }
+        .sheet-body { padding: 15px; }
+        .form-group { margin-bottom: 15px; }
+        .list-item { display: flex; gap: 5px; margin-bottom: 5px; }
+        input[type="text"] { flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px; }
+        .string-filter input[type="text"] { width: 100%; }
+        .btn-add { background: #eee; border: 1px solid #ccc; padding: 5px 10px; cursor: pointer; margin-top: 10px; border-radius: 4px; }
+        .hidden { display: none; }
+        .color-input-group { display: flex; gap: 10px; align-items: center; margin-bottom: 10px; }
+        .color-input-group label { min-width: 100px; }
+        .color-input-group input[type="color"] { width: 60px; height: 35px; border: 1px solid #ccc; border-radius: 4px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>🔄 RO Report Configuration</h1>
+    </header>
+
+    <div class="actions">
+        <button class="btn btn-primary" id="btn-connect">📁 Connect Project Folder</button>
+        <button class="btn btn-success hidden" id="btn-save">💾 Save Changes</button>
+        <span id="status-text" class="status-tag">Select the folder containing config.json to begin.</span>
+    </div>
+
+    <div id="sheets-container">
+    </div>
+</div>
+
+<script>
+    let config = null;
+    let directoryHandle = null;
+    const CONFIG_FILENAME = 'config.json';
+
+    const btnConnect = document.getElementById('btn-connect');
+    const btnSave = document.getElementById('btn-save');
+    const statusText = document.getElementById('status-text');
+    const container = document.getElementById('sheets-container');
+
+    // Escape a value for safe injection into an HTML attribute.
+    // Without this, company names containing " or & corrupt the markup.
+    function escapeAttr(value) {
+        if (value === null || value === undefined) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    // 1. INITIALIZE FOLDER ACCESS
+    btnConnect.addEventListener('click', async () => {
+        try {
+            directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+            await loadConfig();
+
+            // UI Transition
+            btnConnect.classList.add('hidden');
+            btnSave.classList.remove('hidden');
+            statusText.textContent = "Folder Connected. Changes will save to " + CONFIG_FILENAME;
+        } catch (err) {
+            console.error(err);
+        }
+    });
+
+    // 2. LOAD CONFIG
+    async function loadConfig() {
+        try {
+            const fileHandle = await directoryHandle.getFileHandle(CONFIG_FILENAME);
+            const file = await fileHandle.getFile();
+            const text = await file.text();
+            config = JSON.parse(text);
+            renderConfig();
+        } catch (err) {
+            alert("Could not find config.json in this folder. Please ensure the file exists.");
+        }
+    }
+
+    // 3. SAVE CONFIG
+    btnSave.addEventListener('click', async () => {
+        collectChanges();
+        try {
+            const fileHandle = await directoryHandle.getFileHandle(CONFIG_FILENAME, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(config, null, 4));
+            await writable.close();
+
+            const originalText = btnSave.innerText;
+            btnSave.innerText = "✅ Saved!";
+            setTimeout(() => btnSave.innerText = originalText, 2000);
+        } catch (err) {
+            alert("Error saving: " + err.message);
+        }
+    });
+
+    function renderConfig() {
+        container.innerHTML = '';
+        for (const [sheetKey, sheetData] of Object.entries(config.sheets)) {
+            const section = document.createElement('div');
+            section.className = 'sheet-section';
+            section.innerHTML = `
+                <div class="sheet-header">
+                    <h3>${escapeAttr(sheetData.name)}<span class="sheet-key">(${escapeAttr(sheetKey)})</span></h3>
+                    <input type="color" value="${escapeAttr(sheetData.color || '#ffffff')}" data-sheet="${escapeAttr(sheetKey)}" class="color-picker">
+                </div>
+                <div class="sheet-body">
+                    ${renderFilters(sheetKey, sheetData.filters)}
+                    ${renderDncReps(sheetKey, sheetData.dnc_reps)}
+                    ${renderCompanyColoring(sheetKey, sheetData.companyColoring)}
+                </div>
+            `;
+            container.appendChild(section);
+        }
+    }
+
+    function renderFilters(sheetKey, filters) {
+        if (!filters) return '';
+        let html = '';
+        for (const [filterKey, filterValue] of Object.entries(filters)) {
+            if (Array.isArray(filterValue)) {
+                html += `
+                    <div class="form-group">
+                        <label><strong>${escapeAttr(filterKey)}</strong></label>
+                        <div id="${escapeAttr(sheetKey)}-${escapeAttr(filterKey)}-list">
+                            ${filterValue.map((item, idx) => `
+                                <div class="list-item">
+                                    <input type="text" value="${escapeAttr(item)}" data-sheet="${escapeAttr(sheetKey)}" data-filter="${escapeAttr(filterKey)}" data-idx="${idx}">
+                                    <button onclick="removeItem('${sheetKey}', '${filterKey}', ${idx})">✕</button>
+                                </div>
+                            `).join('')}
+                        </div>
+                        <button class="btn-add" onclick="addItem('${sheetKey}', '${filterKey}')">+ Add</button>
+                    </div>
+                `;
+            }
+            else if (typeof filterValue === 'string') {
+                // String filters (e.g. pershing.sourceCompanyKeyword) were
+                // previously skipped and impossible to edit here.
+                html += `
+                    <div class="form-group string-filter">
+                        <label><strong>${escapeAttr(filterKey)}</strong></label>
+                        <input type="text" value="${escapeAttr(filterValue)}" data-sheet="${escapeAttr(sheetKey)}" data-string-filter="${escapeAttr(filterKey)}">
+                    </div>
+                `;
+            }
+        }
+        return html;
+    }
+
+    function renderDncReps(sheetKey, dncReps) {
+        if (!dncReps) return '';
+        return `
+            <div class="form-group">
+                <label><strong>DNC Reps</strong></label>
+                <div id="${escapeAttr(sheetKey)}-dnc_reps-list">
+                    ${dncReps.map((item, idx) => `
+                        <div class="list-item">
+                            <input type="text" value="${escapeAttr(item)}" data-sheet="${escapeAttr(sheetKey)}" data-dnc-rep="${idx}">
+                            <button onclick="removeDncRep('${sheetKey}', ${idx})">✕</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <button class="btn-add" onclick="addDncRep('${sheetKey}')">+ Add</button>
+            </div>
+        `;
+    }
+
+    function renderCompanyColoring(sheetKey, companyColoring) {
+        if (!companyColoring) return '';
+        return `
+            <div class="form-group">
+                <label><strong>Company Coloring</strong></label>
+
+                <div class="color-input-group">
+                    <label>Red Color:</label>
+                    <input type="color" value="${escapeAttr(companyColoring.redColor || '#fbe2d5')}" data-sheet="${escapeAttr(sheetKey)}" data-color-type="redColor" class="company-color-picker"
+                           oninput="this.nextElementSibling.textContent = this.value">
+                    <span>${escapeAttr(companyColoring.redColor || '#fbe2d5')}</span>
+                </div>
+
+                <div class="color-input-group">
+                    <label>Blue Color:</label>
+                    <input type="color" value="${escapeAttr(companyColoring.blueColor || '#dae9f8')}" data-sheet="${escapeAttr(sheetKey)}" data-color-type="blueColor" class="company-color-picker"
+                           oninput="this.nextElementSibling.textContent = this.value">
+                    <span>${escapeAttr(companyColoring.blueColor || '#dae9f8')}</span>
+                </div>
+
+                <label><strong>Red Companies</strong></label>
+                <div id="${escapeAttr(sheetKey)}-redCompanies-list">
+                    ${companyColoring.redCompanies.map((item, idx) => `
+                        <div class="list-item">
+                            <input type="text" value="${escapeAttr(item)}" data-sheet="${escapeAttr(sheetKey)}" data-red-company="${idx}">
+                            <button onclick="removeRedCompany('${sheetKey}', ${idx})">✕</button>
+                        </div>
+                    `).join('')}
+                </div>
+                <button class="btn-add" onclick="addRedCompany('${sheetKey}')">+ Add</button>
+            </div>
+        `;
+    }
+
+    // ------------------------------------------------------------------
+    // BUG FIX: every mutating helper MUST collect in-DOM edits BEFORE
+    // mutating config and re-rendering. Previously, clicking "+ Add" or
+    // remove re-rendered from the stale in-memory config, wiping anything
+    // typed since the last save (newly added items reverted to blank).
+    // ------------------------------------------------------------------
+
+    window.addItem = (s, f) => {
+        collectChanges();
+        config.sheets[s].filters[f].push('');
+        renderConfig();
+    };
+    window.removeItem = (s, f, i) => {
+        collectChanges();
+        config.sheets[s].filters[f].splice(i, 1);
+        renderConfig();
+    };
+
+    window.addDncRep = (s) => {
+        collectChanges();
+        if (!config.sheets[s].dnc_reps) config.sheets[s].dnc_reps = [];
+        config.sheets[s].dnc_reps.push('');
+        renderConfig();
+    };
+    window.removeDncRep = (s, i) => {
+        collectChanges();
+        config.sheets[s].dnc_reps.splice(i, 1);
+        renderConfig();
+    };
+
+    window.addRedCompany = (s) => {
+        collectChanges();
+        if (!config.sheets[s].companyColoring) config.sheets[s].companyColoring = { redCompanies: [], redColor: '#fbe2d5', blueColor: '#dae9f8' };
+        config.sheets[s].companyColoring.redCompanies.push('');
+        renderConfig();
+    };
+    window.removeRedCompany = (s, i) => {
+        collectChanges();
+        config.sheets[s].companyColoring.redCompanies.splice(i, 1);
+        renderConfig();
+    };
+
+    function collectChanges() {
+        if (!config) return;
+
+        // Collect array filter changes
+        document.querySelectorAll('[data-idx]').forEach(input => {
+            const { sheet, filter, idx } = input.dataset;
+            config.sheets[sheet].filters[filter][idx] = input.value;
+        });
+
+        // Collect string filter changes (e.g. sourceCompanyKeyword)
+        document.querySelectorAll('[data-string-filter]').forEach(input => {
+            const { sheet, stringFilter } = input.dataset;
+            config.sheets[sheet].filters[stringFilter] = input.value;
+        });
+
+        // Collect sheet color changes
+        document.querySelectorAll('.color-picker').forEach(input => {
+            config.sheets[input.dataset.sheet].color = input.value;
+        });
+
+        // Collect DNC rep changes
+        document.querySelectorAll('[data-dnc-rep]').forEach(input => {
+            const { sheet, dncRep } = input.dataset;
+            config.sheets[sheet].dnc_reps[dncRep] = input.value;
+        });
+
+        // Collect company color changes
+        document.querySelectorAll('.company-color-picker').forEach(input => {
+            const { sheet, colorType } = input.dataset;
+            config.sheets[sheet].companyColoring[colorType] = input.value;
+        });
+
+        // Collect red company changes
+        document.querySelectorAll('[data-red-company]').forEach(input => {
+            const { sheet, redCompany } = input.dataset;
+            config.sheets[sheet].companyColoring.redCompanies[redCompany] = input.value;
+        });
+    }
+</script>
+</body>
+</html>

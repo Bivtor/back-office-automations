@@ -98,7 +98,7 @@ $script:State = [ordered]@{
     progress    = [ordered]@{ phase = 0; pct = 0; msg = "" }
     log         = [System.Collections.Generic.List[string]]::new()
     startedUtc  = $null
-    outputFiles = [ordered]@{ workbook = ""; summary = "" }
+    outputFiles = [ordered]@{ workbook = ""; summary = ""; computed = ""; forDate = "" }
     params      = [ordered]@{ excelPath=""; outputPath=""; exclude=""; testMode=$false }
 }
 
@@ -136,6 +136,8 @@ function Reset-State {
     $script:State.startedUtc          = $null
     $script:State.outputFiles.workbook = ""
     $script:State.outputFiles.summary  = ""
+    $script:State.outputFiles.computed = ""
+    $script:State.outputFiles.forDate  = ""
     $script:PhaseA.roIds.Clear()
     $script:PhaseA.index   = 0
     $script:PhaseA.results.Clear()
@@ -219,11 +221,23 @@ function Parse-JobLine {
         }
         if ($kv.ContainsKey('workbook')) { $script:State.outputFiles.workbook = $kv['workbook'] }
         if ($kv.ContainsKey('summary'))  { $script:State.outputFiles.summary  = $kv['summary']  }
+        if ($kv.ContainsKey('computed')) { $script:State.outputFiles.computed = $kv['computed'] }
+        if ($kv.ContainsKey('forDate'))  { $script:State.outputFiles.forDate  = $kv['forDate']  }
         $script:State.progress.pct = 100
         $script:State.progress.msg = "Done"
         $script:State.status       = "Done"
         $script:State.stage        = ""
         Add-Log "Run complete."
+        # Auto-open the finished workbook in Excel (default .xlsx handler).
+        $wb = $script:State.outputFiles.workbook
+        if ($wb -and (Test-Path $wb -ErrorAction SilentlyContinue)) {
+            try {
+                Start-Process -FilePath $wb
+                Add-Log "Opened workbook in Excel."
+            } catch {
+                Add-Log "Could not auto-open workbook: $($_.Exception.Message)"
+            }
+        }
         return
     }
     if ($line -match '^\s*@@FAIL\s*(?:msg=)?(.*)$') {
@@ -478,12 +492,27 @@ function Handle-Ping {
     }
     $idx   = $script:PhaseA.index
     $total = $script:PhaseA.roIds.Count
-    Send-Json $ctx @{ ok=$true; done=($idx -ge $total); index=$idx; total=$total }
+    $resp  = @{ ok=$true; done=($idx -ge $total); index=$idx; total=$total }
+    # Tell the userscript which RO we're waiting on so it can skip posting
+    # from a refreshed / back-navigated / second-tab page.
+    if ($idx -lt $total) {
+        $resp.expectedRoId = $script:PhaseA.roIds[$idx]
+        $resp.expectedUrl  = Get-RolloverEditUrl $script:PhaseA.roIds[$idx]
+    }
+    Send-Json $ctx $resp
 }
 
 # POST /result  -- userscript posts { roId, productType } after reading the page
 function Handle-Result {
     param($ctx)
+    # Only accept results while Phase A is live. Without this, a late duplicate
+    # POST after the last RO would push index past total and call
+    # Start-AssignmentStage a second time.
+    if ($script:State.status -ne "Running" -or $script:State.stage -ne "PhaseA") {
+        Send-Json $ctx @{ ok=$false; done=$true; note="Not in PhaseA stage." }
+        return
+    }
+
     $bodyRaw = Read-Body $ctx.Request
     $body    = if ($bodyRaw) { $bodyRaw | ConvertFrom-Json } else { $null }
 
@@ -494,7 +523,30 @@ function Handle-Result {
 
     $roId       = [string]$body.roId
     $productType = [string]$body.productType
+    if ([string]::IsNullOrWhiteSpace($productType)) { $productType = "BLANK PRODUCT CODE" }
 
+    # Idempotency: only the RO at the current index may advance the queue.
+    # Anything else (refresh, Back button, second tab, stale page) is ignored
+    # and the caller is pointed at the RO we're actually waiting on.
+    $curIdx   = $script:PhaseA.index
+    $curTotal = $script:PhaseA.roIds.Count
+    $expected = if ($curIdx -lt $curTotal) { $script:PhaseA.roIds[$curIdx] } else { $null }
+    if ($roId -ne $expected) {
+        $already = @($script:PhaseA.results | Where-Object { $_.roId -eq $roId }).Count -gt 0
+        $reason  = if ($already) { "duplicate" }
+                   elseif ($script:PhaseA.roIds.Contains($roId)) { "out-of-order" }
+                   else { "not-in-queue" }
+        Add-Log "PhaseA: ignored $reason result for $roId (expecting $expected)"
+        $resp = @{ ok=$true; accepted=$false; reason=$reason; done=($curIdx -ge $curTotal); index=$curIdx; total=$curTotal }
+        if ($expected) { $resp.nextUrl = Get-RolloverEditUrl $expected }
+        Send-Json $ctx $resp
+        return
+    }
+
+    # Replace rather than append if this RO somehow already has an entry
+    # (e.g. the export listed the same RO twice) so results stay one-per-RO.
+    $existing = @($script:PhaseA.results | Where-Object { $_.roId -eq $roId })
+    foreach ($e in $existing) { [void]$script:PhaseA.results.Remove($e) }
     $script:PhaseA.results.Add([PSCustomObject]@{ roId=$roId; productType=$productType })
     $script:PhaseA.index++
     $script:State.phaseA.scanned = $script:PhaseA.index
@@ -509,11 +561,11 @@ function Handle-Result {
         Add-Log "Phase A complete."
         $script:State.phaseA.scanned = $total
         Start-AssignmentStage
-        Send-Json $ctx @{ ok=$true; done=$true; index=$idx; total=$total }
+        Send-Json $ctx @{ ok=$true; accepted=$true; done=$true; index=$idx; total=$total }
     } else {
         $nextRo  = $script:PhaseA.roIds[$idx]
         $nextUrl = Get-RolloverEditUrl $nextRo
-        Send-Json $ctx @{ ok=$true; done=$false; index=$idx; total=$total; nextUrl=$nextUrl }
+        Send-Json $ctx @{ ok=$true; accepted=$true; done=$false; index=$idx; total=$total; nextUrl=$nextUrl }
     }
 }
 

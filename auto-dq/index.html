@@ -1,181 +1,229 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Daily Queue Processor</title>
+<title>Daily Queue — daily run</title>
 <style>
-  :root {
-    --bg:#0e1116; --panel:#161b22; --panel-2:#1c2230; --line:#2b3340;
-    --ink:#e6edf3; --ink-dim:#8b949e; --accent:#1f6feb; --accent-2:#2ea043;
-    --warn:#d29922; --bad:#f85149; --persh:#c97cc7; --mono:'Cascadia Code','Consolas',ui-monospace,monospace;
+  :root{
+    --ground:#EEF1F5; --panel:#fff; --ink:#16202E; --muted:#5C6B7F;
+    --rule:#CBD4E0; --rule-strong:#9AA9BC;
+    --entry-bg:#FFF6CC; --entry-edge:#C9A227;
+    --calc:#2C6E31; --calc-bg:#E7F1E6;
+    --flag:#A6321F; --flag-bg:#FBEAE7;
+    --mono:"Cascadia Mono",Consolas,ui-monospace,monospace;
+    --sans:"Segoe UI Variable Text","Segoe UI",system-ui,sans-serif;
   }
-  * { box-sizing:border-box; margin:0; padding:0; }
-  body {
-    background:var(--bg); color:var(--ink);
-    font-family:var(--mono); font-size:14px; line-height:1.5;
-    padding:24px; min-height:100vh;
-  }
-  .wrap { max-width:980px; margin:0 auto; }
-  header {
-    display:flex; align-items:baseline; justify-content:space-between;
-    border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:22px;
-  }
-  h1 { font-size:18px; letter-spacing:.5px; font-weight:700; }
-  h1 .sub { color:var(--ink-dim); font-weight:400; font-size:13px; margin-left:10px; }
-  .pill {
-    font-size:12px; padding:4px 12px; border-radius:2px; border:1px solid var(--line);
-    background:var(--panel-2); letter-spacing:1px; text-transform:uppercase;
-  }
-  .pill.Idle      { color:var(--ink-dim); }
-  .pill.Running   { color:var(--accent);  border-color:var(--accent);  animation:pulse 1.4s infinite; }
-  .pill.Done      { color:var(--accent-2);border-color:var(--accent-2); }
-  .pill.Failed,
-  .pill.Cancelled { color:var(--bad);     border-color:var(--bad); }
-  @keyframes pulse { 50% { opacity:.55; } }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.5}
+  .wrap{max-width:1120px;margin:0 auto;padding:0 24px 96px}
+  a{color:inherit}
+  :focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
-  .grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:18px; }
-  .panel { background:var(--panel); border:1px solid var(--line); border-radius:3px; padding:16px; }
-  .panel h2 {
-    font-size:12px; text-transform:uppercase; letter-spacing:1.5px;
-    color:var(--ink-dim); margin-bottom:14px; font-weight:600;
-  }
-  label { display:block; font-size:12px; color:var(--ink-dim); margin:10px 0 4px; }
-  input[type=text] {
-    width:100%; background:var(--bg); border:1px solid var(--line); color:var(--ink);
-    font-family:var(--mono); font-size:13px; padding:8px 10px; border-radius:2px;
-  }
-  input[type=text]:focus { outline:none; border-color:var(--accent); }
-  .check { display:flex; align-items:center; gap:8px; margin-top:14px; font-size:13px; }
-  .check input { width:16px; height:16px; accent-color:var(--accent); }
+  /* ── tape: live run numbers, sticky ── */
+  .tape{position:sticky;top:0;z-index:10;background:var(--ink);color:#fff;
+        border-bottom:3px solid var(--entry-edge)}
+  .tape-in{max-width:1120px;margin:0 auto;padding:14px 24px;display:flex;
+           gap:34px;align-items:flex-end;flex-wrap:wrap}
+  .tape h1{font-size:13px;letter-spacing:.14em;text-transform:uppercase;
+           font-weight:600;margin:0 auto 0 0;color:#9FB0C6}
+  .cell{display:flex;flex-direction:column;gap:2px;min-width:76px}
+  .cell span{font-size:10.5px;letter-spacing:.09em;text-transform:uppercase;color:#8EA1B8}
+  .cell b{font-family:var(--mono);font-variant-numeric:tabular-nums;
+          font-size:26px;font-weight:600;line-height:1}
+  .cell b.blank{color:#5A6B80}
+  .cell.total b{color:#F4D77A}
+  .cell.total{border-left:1px solid #33445C;padding-left:26px}
+  #t-status{font-size:18px;padding-top:6px}
+  #t-status.Idle{color:#5A6B80}
+  #t-status.Running{color:#F4D77A;animation:pulse 1.4s infinite}
+  #t-status.Done{color:#8FD79A}
+  #t-status.Failed,#t-status.Cancelled{color:#FF9B8A}
+  @keyframes pulse{50%{opacity:.55}}
+  @media (prefers-reduced-motion:reduce){#t-status.Running{animation:none}}
 
-  .warn-banner {
-    display:none; margin-top:10px; padding:8px 12px;
-    background:#2a1f06; border:1px solid var(--warn); border-radius:2px;
-    font-size:12px; color:var(--warn);
-  }
-  .warn-banner.show { display:block; }
+  /* ── steps ── */
+  section{background:var(--panel);border:1px solid var(--rule);margin-top:22px}
+  .head{display:flex;align-items:baseline;gap:12px;padding:14px 20px;
+        border-bottom:1px solid var(--rule)}
+  .num{font-family:var(--mono);font-size:12px;color:var(--muted);
+       border:1px solid var(--rule-strong);padding:1px 6px}
+  .head h2{font-size:15px;margin:0;font-weight:600}
+  .head p{margin:0;color:var(--muted);font-size:13px}
+  .body{padding:18px 20px}
 
-  /* Phase A panel */
-  .phaseA-panel {
-    display:none; background:var(--panel); border:1px solid var(--persh);
-    border-radius:3px; padding:16px; margin-bottom:18px;
-  }
-  .phaseA-panel.show { display:block; }
-  .phaseA-panel h2 { color:var(--persh); font-size:12px; text-transform:uppercase; letter-spacing:1.5px; font-weight:600; margin-bottom:12px; }
-  .phaseA-stat { font-size:13px; margin-bottom:10px; }
-  .phaseA-link { font-size:12px; color:var(--ink-dim); margin-bottom:10px; word-break:break-all; }
-  .phaseA-link a { color:var(--accent); }
+  /* ── controls ── */
+  button{font:inherit;font-size:14px;padding:7px 15px;background:var(--ink);
+         color:#fff;border:1px solid var(--ink);cursor:pointer}
+  button:hover:not(:disabled){background:#2A3B52}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.ghost{background:transparent;color:var(--ink);border-color:var(--rule-strong)}
+  button.ghost:hover:not(:disabled){background:var(--ground)}
+  button.sm{padding:4px 10px;font-size:12.5px}
+  button.danger{background:transparent;color:var(--flag);border-color:var(--flag)}
+  button.danger:hover:not(:disabled){background:var(--flag-bg)}
+  input{font:inherit;font-size:14px;padding:6px 9px;border:1px solid var(--rule-strong);
+        background:#fff;color:inherit;max-width:100%}
+  .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+  .path{font-family:var(--mono);font-size:12.5px;width:100%}
+  .hint{font-size:12.5px;color:var(--muted);margin-top:5px}
+  .field{margin-bottom:14px}
+  .field:last-child{margin-bottom:0}
+  .field label{display:block;font-size:11.5px;letter-spacing:.06em;
+               text-transform:uppercase;color:var(--muted);margin-bottom:5px}
 
-  .controls { display:flex; gap:10px; margin:18px 0; flex-wrap:wrap; }
-  button {
-    font-family:var(--mono); font-size:13px; font-weight:600; letter-spacing:.5px;
-    padding:10px 22px; border-radius:2px; border:1px solid var(--line);
-    background:var(--panel-2); color:var(--ink); cursor:pointer; transition:.15s;
-  }
-  button:hover:not(:disabled) { border-color:var(--accent); }
-  button:disabled { opacity:.4; cursor:not-allowed; }
-  #btnRun      { background:var(--accent); border-color:var(--accent); }
-  #btnCancel   { border-color:var(--bad); color:var(--bad); }
-  #btnSkip     { border-color:var(--persh); color:var(--persh); display:none; }
-  #btnShutdown { margin-left:auto; font-weight:400; color:var(--ink-dim); }
+  /* ── notes / results ── */
+  .note{border-left:3px solid var(--flag);background:var(--flag-bg);padding:11px 14px;
+        font-size:13.5px;margin-top:14px}
+  .note h4{margin:0 0 5px;font-size:13px;color:var(--flag)}
 
-  .progress-shell {
-    background:var(--bg); border:1px solid var(--line); border-radius:2px;
-    height:26px; overflow:hidden; position:relative; margin-bottom:8px;
-  }
-  .progress-fill {
-    height:100%; width:0%; background:linear-gradient(90deg,var(--accent),#388bfd);
-    transition:width .4s ease;
-  }
-  .progress-fill.phaseA { background:linear-gradient(90deg,var(--persh),#e0a8de); }
-  .progress-label {
-    position:absolute; inset:0; display:flex; align-items:center;
-    justify-content:center; font-size:12px; letter-spacing:.5px;
-  }
-  .phase-line { font-size:12px; color:var(--ink-dim); margin-bottom:4px; }
-  .out { font-size:13px; }
-  .out div { padding:3px 0; color:var(--ink-dim); }
-  .out b { color:var(--ink); font-weight:600; }
+  /* ── chat message copy box ── */
+  .chatmsg{display:none;margin-top:14px;border-left:3px solid var(--calc);
+           background:var(--calc-bg);padding:12px 14px}
+  .chatmsg.show{display:block}
+  .chatmsg h4{margin:0 0 8px;font-size:13px;color:var(--calc)}
+  .chatmsg code{font-family:var(--mono);font-size:14px;background:#fff;
+                border:1px solid var(--rule-strong);padding:7px 11px;
+                user-select:all;white-space:nowrap}
 
-  .log {
-    background:#0a0d12; border:1px solid var(--line); border-radius:3px;
-    height:300px; overflow-y:auto; padding:12px; font-size:12px;
-    white-space:pre-wrap; word-break:break-word; color:#9fb3c8;
-  }
-  .log .l { padding:1px 0; }
-  footer { margin-top:18px; font-size:11px; color:var(--ink-dim); text-align:center; }
+  /* ── progress ── */
+  .progress-shell{background:var(--ground);border:1px solid var(--rule-strong);
+                  height:22px;overflow:hidden;position:relative}
+  .progress-fill{height:100%;width:0%;background:var(--ink);transition:width .4s ease}
+  .progress-fill.phaseA{background:var(--entry-edge)}
+  .progress-label{position:absolute;inset:0;display:flex;align-items:center;
+                  justify-content:center;font-family:var(--mono);font-size:12px;
+                  color:var(--muted)}
+  .phase-line{font-size:13px;color:var(--muted);margin:8px 0 0}
+  .out{font-size:13px;margin-top:12px}
+  .out div{padding:2px 0;color:var(--muted)}
+  .out b{color:var(--ink);font-weight:600}
+  .out code{font-family:var(--mono);font-size:12.5px;word-break:break-all}
+
+  /* ── phase A section ── */
+  #phaseASection{display:none;border-left:3px solid var(--entry-edge)}
+  #phaseASection.show{display:block}
+  #phaseASection .head h2{color:#8A6D0B}
+  .badge{font-family:var(--mono);font-size:11px;letter-spacing:.05em;
+         text-transform:uppercase;padding:2px 7px;border:1px solid currentColor;
+         display:inline-block;white-space:nowrap}
+  .warnb{color:#8A6D0B;background:var(--entry-bg);border-color:var(--entry-edge)}
+
+  /* ── log ── */
+  .log{background:#fff;height:300px;overflow-y:auto;
+       padding:12px 14px;font-family:var(--mono);font-size:12.5px;line-height:1.55;
+       white-space:pre-wrap;word-break:break-word;color:var(--muted)}
+  .log .l{padding:1px 0}
+
+  /* ── bottom bar ── */
+  .bar{position:fixed;bottom:0;left:0;right:0;background:var(--panel);
+       border-top:1px solid var(--rule-strong);padding:12px 24px;z-index:11}
+  .bar-in{max-width:1120px;margin:0 auto;display:flex;gap:14px;align-items:center}
+  .status{font-size:13px;color:var(--muted);margin-right:auto}
+  .toggle{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer}
+  .toggle input{accent-color:var(--entry-edge)}
+
+  footer{margin-top:18px;font-size:11.5px;color:var(--muted);text-align:center}
 </style>
 </head>
 <body>
+
+<div class="tape">
+  <div class="tape-in">
+    <h1>Daily queue</h1>
+    <div class="cell"><span>Status</span><b id="t-status" class="Idle">Idle</b></div>
+    <div class="cell"><span>PERSH scan</span><b id="t-scan" class="blank">&mdash;</b></div>
+    <div class="cell"><span>Progress</span><b id="t-pct" class="blank">&mdash;</b></div>
+    <div class="cell total"><span>Computed</span><b id="t-computed" class="blank">&mdash;</b></div>
+  </div>
+</div>
+
 <div class="wrap">
 
-  <header>
-    <h1>DAILY QUEUE PROCESSOR <span class="sub">rollover / transfer assignment</span></h1>
-    <span id="statusPill" class="pill Idle">Idle</span>
-  </header>
-
-  <!-- Configuration + Progress grid -->
-  <div class="grid">
-    <div class="panel">
-      <h2>Configuration</h2>
-      <label>Excel export path (.xls)</label>
-      <input type="text" id="excelPath" placeholder="Loading default...">
-      <div id="exportWarn" class="warn-banner">
-        ⚠ Export file date doesn't match today — you may be using yesterday's download.
+  <section>
+    <div class="head"><span class="num">1</span><h2>Configuration</h2>
+      <p>Defaults load from the server &mdash; correct anything that looks wrong.</p></div>
+    <div class="body">
+      <div class="field">
+        <label for="excelPath">Excel export path (.xls)</label>
+        <input type="text" id="excelPath" class="path" placeholder="Loading default...">
       </div>
-      <label>Output folder</label>
-      <input type="text" id="outputPath" placeholder="Loading default...">
-      <label>Exclude processors (comma indices) &mdash; 1=Fran 2=Victor 3=Drew 4=Evan</label>
-      <input type="text" id="exclude" placeholder="e.g. 3  (leave blank for all)">
-      <div class="check">
-        <input type="checkbox" id="testMode">
-        <label style="margin:0;color:var(--ink);">Test mode</label>
+      <div id="exportWarn" class="note" style="display:none;margin:0 0 14px">
+        <h4>Export file may be stale</h4>
+        Export file date doesn't match today &mdash; you may be using yesterday's download.
+      </div>
+      <div class="field">
+        <label for="outputPath">Output folder</label>
+        <input type="text" id="outputPath" class="path" placeholder="Loading default...">
+      </div>
+      <div class="field">
+        <label for="exclude">Exclude processors (comma indices) &mdash; 1=Fran&ensp;2=Victor&ensp;3=Drew&ensp;4=Evan</label>
+        <input type="text" id="exclude" class="path" placeholder="e.g. 3  (leave blank for all)" style="max-width:340px">
       </div>
     </div>
+  </section>
 
-    <div class="panel">
-      <h2>Progress</h2>
-      <div class="phase-line" id="phaseLine">Idle &mdash; no run started.</div>
+  <section id="phaseASection">
+    <div class="head"><span class="num">2</span><h2>Phase A &mdash; PERSH scan</h2>
+      <p>The scan tab opens automatically; the userscript walks every row and reports back.</p></div>
+    <div class="body">
+      <div class="row" style="margin-bottom:8px">
+        <span class="badge warnb">scanning</span>
+        <strong id="phaseAScanStat" style="font-size:14px">Waiting for scan...</strong>
+      </div>
+      <div id="phaseALink" class="hint"></div>
+      <p class="hint" style="margin-top:8px">
+        The tab needs the <b>DQ Phase A PERSH Scanner</b> userscript installed.
+        If it didn't open (popup blocked), use the link above &mdash; or navigate manually with <code>?dq=1</code>.
+        <b>Skip Phase A</b> proceeds without PERSH detection.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <div class="head"><span class="num">3</span><h2>Run</h2>
+      <p>Progress, output files, and the chat message once the workbook lands.</p></div>
+    <div class="body">
       <div class="progress-shell">
         <div class="progress-fill" id="progFill"></div>
         <div class="progress-label" id="progLabel">0%</div>
       </div>
-      <div class="phase-line" id="phaseAStat" style="margin-top:10px;"></div>
-      <div class="out" id="outFiles" style="margin-top:14px;"></div>
+      <div class="phase-line" id="phaseLine">Idle &mdash; no run started.</div>
+      <div class="out" id="outFiles"></div>
+
+      <div class="chatmsg" id="chatBox">
+        <h4>Post to the team chat</h4>
+        <div class="row">
+          <code id="chatText"></code>
+          <button class="sm ghost" id="btnCopyChat">Copy</button>
+        </div>
+      </div>
     </div>
-  </div>
+  </section>
 
-  <!-- Phase A panel (shown only during PhaseA stage) -->
-  <div class="phaseA-panel" id="phaseAPanel">
-    <h2>&#128269; Phase A &mdash; PERSH Scan</h2>
-    <div class="phaseA-stat" id="phaseAScanStat">Waiting for scan...</div>
-    <div class="phaseA-link" id="phaseALink"></div>
-    <div style="font-size:12px;color:var(--ink-dim);">
-      Open the link above in a tab that has the <b>DQ Phase A PERSH Scanner</b> userscript installed.
-      The script will auto-advance through all rows and post results back here.
-      Click <b>Skip Phase A</b> to proceed without PERSH detection.
-    </div>
-  </div>
-
-  <div class="controls">
-    <button id="btnRun">&#9654; RUN PIPELINE</button>
-    <button id="btnCancel" disabled>&#9632; CANCEL</button>
-    <button id="btnSkip">&#8594; SKIP PHASE A</button>
-    <button id="btnShutdown">shut down server</button>
-  </div>
-
-  <div class="panel">
-    <h2>Log</h2>
+  <section>
+    <div class="head"><span class="num">4</span><h2>Log</h2>
+      <p>Everything the server and pipeline said, newest at the bottom.</p></div>
     <div class="log" id="log"></div>
-  </div>
+  </section>
 
   <footer>server owns all state &middot; polls every second &middot; closing this tab during a run cancels it &middot; server auto-shuts down when a run completes</footer>
 </div>
 
+<div class="bar">
+  <div class="bar-in">
+    <span class="status" id="barStatus">Ready.</span>
+    <label class="toggle"><input type="checkbox" id="testMode"> Test mode</label>
+    <button id="btnSkip" class="ghost" style="display:none">Skip Phase A</button>
+    <button id="btnCancel" class="danger" disabled>Cancel</button>
+    <button id="btnRun">&#9654;&ensp;Run pipeline</button>
+    <button id="btnShutdown" class="ghost sm">shut down</button>
+  </div>
+</div>
+
 <script>
 const $ = id => document.getElementById(id);
-let polling   = null;
+let polling    = null;
 let lastStatus = "Idle";
 let lastStage  = "";
 let autoShutDone = false;   // guard so auto-shutdown fires only once per completed run
@@ -205,7 +253,7 @@ async function loadDefaults() {
     applyOutputDefault();                      // toggle defaults OFF -> prod path
     // Warn if export file date != today
     if (d.excelFileDate && d.today && d.excelFileDate !== d.today) {
-      $('exportWarn').classList.add('show');
+      $('exportWarn').style.display = 'block';
     }
   } catch(e) { /* server may not be up yet */ }
 }
@@ -219,13 +267,13 @@ function setControls(status, stage) {
 
   const inPhaseA = running && stage === "PhaseA";
   $('btnSkip').style.display = inPhaseA ? '' : 'none';
-  $('phaseAPanel').classList.toggle('show', inPhaseA);
+  $('phaseASection').classList.toggle('show', inPhaseA);
 }
 
 // ── Render state ──────────────────────────────────────────────────────────────
 function render(s) {
-  $('statusPill').textContent = s.status;
-  $('statusPill').className   = 'pill ' + s.status;
+  $('t-status').textContent = s.status;
+  $('t-status').className   = s.status;
   setControls(s.status, s.stage);
 
   const p  = s.progress || { phase:0, pct:0, msg:'' };
@@ -241,37 +289,53 @@ function render(s) {
   $('progFill').style.width  = pct + '%';
   $('progLabel').textContent = pct + '%';
 
+  // Tape cells
+  $('t-pct').textContent  = (s.status === 'Idle') ? '\u2014' : pct + '%';
+  $('t-pct').classList.toggle('blank', s.status === 'Idle');
+  $('t-scan').textContent = pa.total > 0 ? `${pa.scanned}/${pa.total}` : '\u2014';
+  $('t-scan').classList.toggle('blank', pa.total === 0);
+
+  const of = s.outputFiles || {};
+  $('t-computed').textContent = of.computed ? of.computed : '\u2014';
+  $('t-computed').classList.toggle('blank', !of.computed);
+
   if (s.status === 'Idle') {
-    $('phaseLine').textContent = 'Idle — no run started.';
+    $('phaseLine').textContent = 'Idle \u2014 no run started.';
+    $('barStatus').textContent = 'Ready.';
   } else if (inPhaseA) {
     $('phaseLine').textContent = `Stage: PhaseA  |  PERSH scan ${pa.scanned} / ${pa.total}`;
+    $('barStatus').textContent = `Phase A \u2014 scanning ${pa.scanned}/${pa.total}...`;
   } else {
     $('phaseLine').textContent =
-      `Stage: ${s.stage || '—'}  |  Phase ${p.phase || 0}/4  |  ${p.msg || ''}`;
+      `Stage: ${s.stage || '\u2014'}  |  Phase ${p.phase || 0}/4  |  ${p.msg || ''}`;
+    $('barStatus').textContent = s.status === 'Running' ? (p.msg || 'Running...') : s.status + '.';
   }
 
   // Phase A panel details
   if (inPhaseA) {
     $('phaseAScanStat').textContent = `Scanned ${pa.scanned} of ${pa.total} rows`;
     if (pa.total > 0 && pa.scanned < pa.total) {
-      const nextId = null; // server log contains the URL; show instructions
       $('phaseALink').innerHTML =
         `<a href="#" onclick="openFirstUrl(); return false;">Open scan tab</a>` +
-        ` &mdash; or navigate manually with <code>?dq=1</code>`;
+        ` \u2014 fallback if the tab didn't open automatically`;
     } else if (pa.scanned >= pa.total && pa.total > 0) {
       $('phaseAScanStat').textContent = `Scan complete (${pa.total} rows). Launching assignment...`;
       $('phaseALink').innerHTML = '';
     }
   }
 
-  $('phaseAStat').textContent = pa.total > 0
-    ? `PERSH scan: ${pa.scanned} / ${pa.total}${pa.skipped ? ' (skipped)' : ''}`
-    : '';
-
-  const of = s.outputFiles || {};
   $('outFiles').innerHTML =
-    (of.workbook ? `<div><b>Workbook:</b> ${esc(of.workbook)}</div>` : '') +
-    (of.summary  ? `<div><b>Summary:</b>  ${esc(of.summary)}</div>`  : '');
+    (of.workbook ? `<div><b>Workbook:</b> <code>${esc(of.workbook)}</code></div>` : '') +
+    (of.summary  ? `<div><b>Summary:</b> <code>${esc(of.summary)}</code></div>`  : '');
+
+  // Chat message box -- "27 for Monday"
+  if (s.status === 'Done' && of.computed && of.forDate) {
+    const day = new Date(of.forDate).toLocaleDateString('en-US', { weekday: 'long' });
+    $('chatText').textContent = `${of.computed} for ${day}`;
+    $('chatBox').classList.add('show');
+  } else if (s.status === 'Running') {
+    $('chatBox').classList.remove('show');
+  }
 
   const log = $('log');
   const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
@@ -284,7 +348,8 @@ function render(s) {
   // lands before the interval is cleared.
   if (s.status === 'Done' && lastStatus !== 'Done' && !autoShutDone) {
     autoShutDone = true;
-    $('phaseLine').textContent = 'Run complete — shutting down server...';
+    $('phaseLine').textContent = 'Run complete \u2014 shutting down server...';
+    $('barStatus').textContent = 'Done \u2014 server shut down.';
     fetch('/shutdown', { method:'POST' }).catch(() => {});
     clearInterval(polling);
   }
@@ -301,7 +366,8 @@ async function poll() {
     const r = await fetch('/status', { cache:'no-store' });
     render(await r.json());
   } catch(e) {
-    $('phaseLine').textContent = 'Server unreachable — is server.ps1 running?';
+    $('phaseLine').textContent = 'Server unreachable \u2014 is server.ps1 running?';
+    $('barStatus').textContent = 'Server unreachable.';
   }
 }
 
@@ -309,6 +375,12 @@ async function poll() {
 $('btnRun').addEventListener('click', async () => {
   $('btnRun').disabled = true;
   autoShutDone = false;   // allow auto-shutdown to fire for this new run
+  $('chatBox').classList.remove('show');
+
+  // Open the scan tab NOW (synchronously, inside the click) so the popup
+  // blocker allows it; point it at the first URL once /start responds.
+  const scanTab = window.open('about:blank', '_blank');
+
   const payload = {
     excelPath:  $('excelPath').value.trim(),
     outputPath: $('outputPath').value.trim(),
@@ -321,10 +393,21 @@ $('btnRun').addEventListener('click', async () => {
       body: JSON.stringify(payload)
     });
     const j = await r.json();
-    if (!j.ok) { alert(j.error || 'Could not start.'); return; }
-    // Store firstUrl in case user wants to open the scan tab manually
-    if (j.firstUrl) window._dqFirstUrl = j.firstUrl;
-  } catch(e) { alert('Start failed: ' + e.message); }
+    if (!j.ok) {
+      if (scanTab) scanTab.close();
+      alert(j.error || 'Could not start.');
+      return;
+    }
+    if (j.firstUrl) {
+      window._dqFirstUrl = j.firstUrl;
+      if (scanTab) scanTab.location = j.firstUrl;   // auto-open the scan
+    } else if (scanTab) {
+      scanTab.close();   // no Phase A rows -- nothing to scan
+    }
+  } catch(e) {
+    if (scanTab) scanTab.close();
+    alert('Start failed: ' + e.message);
+  }
   poll();
 });
 
@@ -344,7 +427,26 @@ $('btnShutdown').addEventListener('click', async () => {
   if (!confirm('Shut down the server? You will need to re-run START.bat.')) return;
   try { await fetch('/shutdown', { method:'POST' }); } catch(e) {}
   $('phaseLine').textContent = 'Server shut down. Re-run START.bat to use again.';
+  $('barStatus').textContent = 'Server shut down.';
   clearInterval(polling);
+});
+
+$('btnCopyChat').addEventListener('click', async () => {
+  const txt = $('chatText').textContent;
+  try {
+    await navigator.clipboard.writeText(txt);
+  } catch(e) {
+    // Fallback: select + execCommand
+    const range = document.createRange();
+    range.selectNodeContents($('chatText'));
+    const sel = window.getSelection();
+    sel.removeAllRanges(); sel.addRange(range);
+    document.execCommand('copy');
+    sel.removeAllRanges();
+  }
+  const b = $('btnCopyChat');
+  b.textContent = 'Copied!';
+  setTimeout(() => { b.textContent = 'Copy'; }, 1500);
 });
 
 function openFirstUrl() {

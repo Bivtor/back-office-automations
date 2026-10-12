@@ -23,14 +23,14 @@
         'v.rinaldi': '1002',  // Rinaldi, Victor
         'd.davis':   '1003',  // Davis, Drew
         'e.evans':   '1004',  // Evans, Evan
-        'g.grant':   '1005'   // Grant, G.  (PERSH)
+        'g.grant':   '1005'   // Grant, Gray  (PERSH)
     };
     const VALUE_TO_LABEL = {
         '1001': 'Foster, Fran',
         '1002': 'Rinaldi, Victor',
         '1003': 'Davis, Drew',
         '1004': 'Evans, Evan',
-        '1005': 'Grant, G.'
+        '1005': 'Grant, Gray'
     };
 
     // The OES Assignment grid: select[name="assignment"].oesInput rows. We scope

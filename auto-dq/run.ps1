@@ -299,23 +299,25 @@ Log "  Next business day: $($nextBizDay.ToString('MM/dd/yyyy'))" DarkGray
 #     distributed. Internal stays blank/yellow; PERSH goes to G.Grant.
 #   * Work is grouped by OES ID -- one OES (all its rollovers) goes to ONE
 #     processor, never split. The COUNT that matters is rollover ROWS.
-#   * Targets are an even split of total rollover rows across active processors,
-#     in the fixed order Fran, Victor, Drew, Evan (minus any excluded). Any
-#     remainder from an odd/indivisible total goes to Victor (or, if Victor is
-#     excluded, the last active processor).
+#   * Targets are an even split of total rollover rows across active processors.
+#     An indivisible total spreads the remainder ONE extra each: Victor takes
+#     the first +1 (guaranteeing him a full share), then the rest of the +1s go
+#     down the fixed order. Net effect: one person ends up short, never Victor
+#     ending up with everything piled on.
+#       39 / 4 -> Victor 10, Fran 10, Drew 10, Evan 9   (old rule: Victor 12)
+#       25 / 4 -> Victor 7,  Fran 6,  Drew 6,  Evan 6
 #   * Fill goes down the line: for each processor we add OES groups until adding
 #     the next group would EXCEED their target. If the next group is too big, we
 #     look ahead for a smaller group that lands them exactly on target and take
 #     that instead, leaving the big group for a later processor. Any groups that
-#     can't be placed cleanly fall to Victor (or the last active processor).
+#     can't be placed cleanly go to whoever has the FEWEST rows at that point
+#     (ties prefer non-Victor, then fixed order).
 if ($isJobMode) { Write-Output "@@STATUS phase=3 pct=50 msg=Generating assignments" }
 Log ""
 Log "[3/4] Generating assignments..." Yellow
 
 $procNames    = @($activeProcessors | ForEach-Object { $_.shortName })
 $victorActive = $procNames -contains $VICTOR_SHORTNAME
-# Where extras / leftovers go: Victor if active, else the last active processor.
-$extrasTarget = if ($victorActive) { $VICTOR_SHORTNAME } else { $procNames[$procNames.Count - 1] }
 
 # Final map: processor shortName -> List[RowId]
 $assignMap = @{}
@@ -344,12 +346,17 @@ if ($toCompute.Count -gt 0 -and $procNames.Count -gt 0) {
     $totalRows = $toCompute.Count
     $nProc     = $procNames.Count
 
-    # --- Targets: even split, remainder to the extras target ---
+    # --- Targets: even split, remainder spread one extra each ---
+    # Victor gets the first +1 so he is never the one left short; remaining
+    # +1s go down the fixed order to the other processors.
     $base      = [int][math]::Floor($totalRows / $nProc)
     $remainder = $totalRows - ($base * $nProc)
     $target    = @{}
     foreach ($p in $procNames) { $target[$p] = $base }
-    if ($remainder -gt 0) { $target[$extrasTarget] += $remainder }
+    $plusOrder = @()
+    if ($victorActive) { $plusOrder += $VICTOR_SHORTNAME }
+    $plusOrder += @($procNames | Where-Object { $_ -ne $VICTOR_SHORTNAME })
+    for ($i = 0; $i -lt $remainder; $i++) { $target[$plusOrder[$i]] += 1 }
 
     Log ("  Targets: {0}" -f (($procNames | ForEach-Object { "$_=$($target[$_])" }) -join ", ")) DarkGray
 
@@ -381,11 +388,21 @@ if ($toCompute.Count -gt 0 -and $procNames.Count -gt 0) {
         }
     }
 
-    # --- Any groups still unplaced (didn't fit anyone cleanly) -> extras target ---
+    # --- Any groups still unplaced (didn't fit anyone cleanly) ---
+    # Send each to whoever currently holds the FEWEST rows; ties prefer
+    # non-Victor, then fixed order. Victor never absorbs overflow by default.
     foreach ($k in $groupOrder) {
         if ($assignedKeys.ContainsKey($k)) { continue }
         $assignedKeys[$k] = $true
-        foreach ($rid in $groupRows[$k]) { $assignMap[$extrasTarget].Add($rid) }
+        $dest = $null
+        foreach ($p in $procNames) {
+            if ($null -eq $dest) { $dest = $p; continue }
+            $pc = $assignMap[$p].Count
+            $dc = $assignMap[$dest].Count
+            if ($pc -lt $dc) { $dest = $p; continue }
+            if ($pc -eq $dc -and $dest -eq $VICTOR_SHORTNAME -and $p -ne $VICTOR_SHORTNAME) { $dest = $p }
+        }
+        foreach ($rid in $groupRows[$k]) { $assignMap[$dest].Add($rid) }
     }
 }
 
@@ -638,8 +655,7 @@ if ($assignMap) {
     Log "  Assignments per processor:" White
     foreach ($p in $activeProcessors) {
         $n  = if ($assignMap.ContainsKey($p.shortName)) { $assignMap[$p.shortName].Count } else { 0 }
-        $mk = if ($p.shortName -eq $VICTOR_SHORTNAME) { "  <-- most (enforced)" } else { "" }
-        Log ("    {0,-10} {1,3}{2}" -f $p.shortName, $n, $mk) White
+        Log ("    {0,-10} {1,3}" -f $p.shortName, $n) White
     }
 }
 Log ""
@@ -660,10 +676,11 @@ if (Test-Path $phaseACleanup) {
 }
 
 if ($isJobMode) {
+    $doneExtra = "computed=$($toCompute.Count) forDate=$($nextBizDay.ToString('MM/dd/yyyy'))"
     if ($summaryPath) {
-        Write-Output "@@DONE workbook=$outFile summary=$summaryPath"
+        Write-Output "@@DONE workbook=$outFile summary=$summaryPath $doneExtra"
     } else {
-        Write-Output "@@DONE workbook=$outFile"
+        Write-Output "@@DONE workbook=$outFile $doneExtra"
     }
 } else {
     Read-Host "  Press Enter to close"

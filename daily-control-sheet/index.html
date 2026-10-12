@@ -345,8 +345,8 @@ const state = {located:null, parsed:null, afternoon:null, remit:null,
 const LABELS = {
   loans_tt:"Loans + trade tickets (PDF)",
   ach:"ACHs (PDF)",
-  afternoon_report:"ACH report, morning or afternoon (Excel)",
-  check_total:"Check total (filename only)",
+  afternoon_report:"ACH report, morning or afternoon (Excel) — optional",
+  check_total:"Check total (filename only) — optional",
   control_sheet:"Control sheet (today's workbook)"
 };
 const BUCKETS = {
@@ -372,6 +372,10 @@ $("date").value = new Date().toISOString().slice(0,10);
 
 /* ── 1. locate ─────────────────────────────────────────────── */
 const SOURCE_KEYS = ["loans_tt","ach","afternoon_report","check_total"];
+// The two PDFs are what the sheet is built from. The ACH report and the check
+// file can be missing — their figures are left blank on the sheet to be keyed
+// in by hand — so an empty box for either one is not an error.
+const OPTIONAL = new Set(["afternoon_report","check_total"]);
 
 /* Re-runnable, because the control sheet's own entry is stale the moment the
    workbook is written.
@@ -436,9 +440,17 @@ function renderSources(data){
     const found = !!s.path;
     const badge = key === "control_sheet"
       ? (found ? ["ok","found"] : ["warn","not detected"])
-      : !found ? ["bad","not found"]
+      : !found ? (OPTIONAL.has(key) ? ["warn","not found — optional"] : ["bad","not found"])
       : s.confident ? ["ok","found"]
       : ["warn","check date"];
+    // A missing optional file gets told what a blank means, not "pick one".
+    const error = !found && OPTIONAL.has(key)
+      ? (key === "check_total"
+          ? "Not found. Leave it blank and type the check figures in below, "
+            + "or leave those blank too and key them on the sheet later."
+          : "Not found. Leave it blank and the statement total, in-house ACHs "
+            + "and wires stay empty on the sheet, to be keyed in later.")
+      : s.error;
     // A file can now turn up in more than one folder under the same name, so
     // say which is which — but only when it would otherwise be ambiguous.
     const dirOf = p => String(p||"").replace(/[\\/][^\\/]*$/, "");
@@ -457,7 +469,7 @@ function renderSources(data){
       ${s.candidates.length?`<div class="hint">Other files here:
         <select data-pick="${key}"><option value="">—</option>${options}</select></div>`:""}
       ${s.note?`<div class="hint">${esc(s.note)}</div>`:""}
-      ${s.error?`<div class="hint" style="color:${badge[0]==="bad"?"var(--flag)":"#8A6D0B"}">${esc(s.error)}</div>`:""}
+      ${error?`<div class="hint" style="color:${badge[0]==="bad"?"var(--flag)":"#8A6D0B"}">${esc(error)}</div>`:""}
     </div>`;
   }).join("");
 
@@ -568,7 +580,10 @@ $("parse").onclick = () => working($("parse"), "Reading…", async () => {
 /* ── afternoon report ──────────────────────────────────────── */
 function renderAfternoon(){
   const a = state.afternoon;
-  if (!a) return $("afternoon").innerHTML = `<p class="empty">Not read.</p>`;
+  if (!a) return $("afternoon").innerHTML = state.parsed && !currentPath("afternoon_report")
+    ? `<p class="empty">No ACH report picked, so this is skipped. The statement total,
+       in-house ACHs and wires are left blank on the sheet to be keyed in later.</p>`
+    : `<p class="empty">Not read.</p>`;
 
   const bad = k => a.checks[k] ? "" :
     `<div class="note"><h4>Doesn't reconcile</h4>The report's own total disagrees with the rows we read. Check before using.</div>`;
@@ -880,12 +895,15 @@ function refresh(){
     <tbody>
       ${line("Loan pulls","Loans + TT PDF",s.loan.items,s.loan.sum)}
       ${line("Trade tickets","Loans + TT PDF",s.tt.items,s.tt.sum)}
-      ${a?line("&nbsp;&nbsp;ACHs received","Afternoon report",a.ach.items,a.ach.total):""}
+      ${a?line("&nbsp;&nbsp;ACHs received","Afternoon report",a.ach.items,a.ach.total)
+         :line("&nbsp;&nbsp;ACHs received","No ACH report — left blank",null,null)}
       ${a?line("&nbsp;&nbsp;less in-house ACHs","Afternoon report",-a.house.length,-a.house_sum):""}
       ${a?line("&nbsp;&nbsp;plus wires kept","Afternoon report",wiresIn().length,wireSum()):""}
       ${line("&nbsp;&nbsp;plus pulled ACHs","ACH PDF",s.ach.items,s.ach.sum)}
       ${line("<strong>ACHs &amp; wires</strong>","",s.achItems,s.achAdjusted)}
-      ${line("UMB checks / LB 2999 checks","Check file name",s.umbCount,s.umbAmount)}
+      ${line("UMB checks / LB 2999 checks",
+             s.umbCount==null&&s.umbAmount==null?"Not entered — left blank":"Check file name",
+             s.umbCount,s.umbAmount)}
       ${line("Remote deposits","Emailed scan",s.rdcCount,s.rdcAmount)}
     </tbody>
     <tfoot><tr><td colspan="2">Total deposit</td>

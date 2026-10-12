@@ -120,6 +120,27 @@ def _sender(lines):
     return {"name": "(no sender line)", "detail": "", "found_on": None}
 
 
+def empty():
+    """
+    The shape read() hands back, with nothing in it.
+
+    For a run with no ACH report — it isn't in the day folder yet, or the sheet
+    is being built early — so the rest of the build can treat "no report" the
+    same as "a report with nothing on it". The statement total and item count
+    come through as None and land on the sheet as blank yellow cells, to be
+    keyed in by hand once the figures are known.
+    """
+    return {
+        "kind": None,
+        "ach": {"total": None, "items": None, "row_count": 0, "row_sum": 0.0},
+        "house": [],
+        "house_sum": 0.0,
+        "wires": [],
+        "stated": {},
+        "checks": {"ach_rows_match_total": True, "wire_rows_match_total": True},
+    }
+
+
 def read(path):
     sheet = _open(path)
 
@@ -203,10 +224,3 @@ def read(path):
                         - (stated.get("wire_total") or 0)) < 0.005,
         },
     }
-	
-
-
-// end of the make CS files
-
-// this is a python script I generated to move all the data for two power BI reports into parquet as well as recalculate KPI benchmarks file,
-// and remove the 20 calculated columns that were baked into the report. That was the main issue preventing it from loading on other peoples machines.

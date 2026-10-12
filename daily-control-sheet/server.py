@@ -71,6 +71,9 @@ def build_plan(body):
     two figures that come off the emailed scan — so the workbook is always
     built from the files themselves, never from whatever the page happens to
     be holding.
+
+    Only the two PDFs are required. The ACH report and the check figures can
+    be missing: their cells are left blank for someone to key in later.
     """
     d = datetime.strptime(body["date"], "%Y-%m-%d").date()
 
@@ -78,7 +81,11 @@ def build_plan(body):
     added = body.get("added_rows") or {}
     tt = items.categorize(items.read_pdf(body["loans_tt"]), "loans_tt", added)
     ach = items.categorize(items.read_pdf(body["ach"]), "ach", added)
-    report = afternoon.read(body["afternoon_report"])
+    # The ACH report is optional. With no path, the statement total, item
+    # count, in-house ACHs and wires are all left blank on the sheet rather
+    # than refusing to build it.
+    report_path = body.get("afternoon_report")
+    report = afternoon.read(report_path) if report_path else afternoon.empty()
 
     # Trade tickets, loan pulls and lockbox ACHs the user struck out. Sent as
     # payment numbers rather than positions, so they still point at the same

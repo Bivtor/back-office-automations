@@ -4,3 +4,7 @@ private/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Python build artefacts
+__pycache__/
+*.pyc

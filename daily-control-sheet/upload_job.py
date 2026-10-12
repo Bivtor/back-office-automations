@@ -47,7 +47,7 @@ def _cents(v):
 
 
 def _standard_pm(name):
-    """A in-house ACH of the usual batch kind, "INTERNAL CORP,..."."""
+    """An in-house ACH of the usual batch kind, "INTERNAL CORP,..."."""
     return (name or "").upper().replace(" ", "").startswith("INTERNALCORP")
 
 

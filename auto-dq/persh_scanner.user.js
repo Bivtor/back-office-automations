@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         DQ Phase A  PERSH Scanner
 // @namespace    http://tampermonkey.net/
-// @version      1.2
+// @version      1.3
 // @description  Reads product type from rolloverEdit.cfm and posts back to local PS server
 // @author       Victor
 // @match        https://www.partners.example.com/SimpleAlloc/Maintenance/rolloverEdit.cfm*
@@ -17,9 +17,18 @@
     const SERVER_PORT = 52731;
     const SERVER = `http://localhost:${SERVER_PORT}`;
 
+    // Label posted when the Product column exists but every leg is empty.
+    // Does not match /persh/i, so run.ps1 treats it as non-PERSH.
+    const BLANK_LABEL = 'BLANK PRODUCT CODE';
+
     // Only activate when ?dq=1 is in the URL
     const params = new URLSearchParams(window.location.search);
     if (params.get('dq') !== '1') return;
+
+    // Run-once guard: Tampermonkey can inject twice (e.g. iframes, re-injection),
+    // and we never want two scans of the same page racing each other.
+    if (window.__dqPhaseARan) return;
+    window.__dqPhaseARan = true;
 
     // ── UI Pane ───────────────────────────────────────────────────────────────
     const pane = document.createElement('div');
@@ -63,6 +72,11 @@
             </div>
             <div id="dq-current" style="color:#e0e0e0; margin-bottom:4px;"></div>
             <div id="dq-product" style="font-size:14px; font-weight:bold; margin-bottom:8px;"></div>
+            <a id="dq-jump" href="#" style="
+                display:none; margin-bottom:8px; padding:4px 8px;
+                background:#0f3460; color:#00b4d8; border-radius:4px;
+                text-decoration:none; text-align:center;
+            "></a>
             <div id="dq-log" style="
                 max-height: 120px;
                 overflow-y: auto;
@@ -111,6 +125,17 @@
         $id('dq-progress-label').textContent = `${index} / ${total}  (${pct}%)`;
     }
 
+    // Manual "go to the RO the server is waiting on" link. Used instead of an
+    // auto-redirect when this page is NOT the expected RO, so a stray second tab
+    // can't start ping-ponging through the queue alongside the main one.
+    function showJump(url, label) {
+        if (!url) return;
+        const a = $id('dq-jump');
+        a.href = url;
+        a.textContent = label;
+        a.style.display = 'block';
+    }
+
     function serverGet(path) {
         return new Promise((resolve, reject) => {
             GM_xmlhttpRequest({
@@ -150,6 +175,12 @@
     //
     // Layout:  Account | Account Type | Product | Target Company | ...
     //                                   ^^^^^^^ this column
+    //
+    // Returns:
+    //   "NMZZ" / "A; B"     -> product code(s) found
+    //   BLANK_LABEL          -> Product column found, but every leg is empty
+    //   null                 -> Product column NOT found (page didn't render,
+    //                           layout changed, error page) -- a real failure
     function readProductType() {
         try {
             // 1. Locate the "Product" column header cell (exact text match).
@@ -178,7 +209,10 @@
                 const val = tds[colIdx].textContent.replace(/\u00a0/g, ' ').trim();
                 if (val) products.push(val);
             }
-            if (products.length === 0) return null;
+
+            // Header is present, so the page rendered -- an empty column is a
+            // legitimate data state, not a read failure.
+            if (products.length === 0) return BLANK_LABEL;
 
             // Single leg -> plain value (e.g. "NMZZ"); multi-leg -> joined.
             return products.join('; ');
@@ -193,6 +227,8 @@
     }
 
     // ── Main flow ─────────────────────────────────────────────────────────────
+    let posted = false; // second guard: never POST twice from this page load
+
     async function run() {
         setStatus('#888');
         $id('dq-progress-label').textContent = 'Connecting to server...';
@@ -230,36 +266,75 @@
         log(`Server connected. ${pingData.total} rows to scan.`);
         setProgress(pingData.index, pingData.total);
 
-        // Step 2: read product type from this page
-        const productType = readProductType();
         const roId = getCurrentRoId();
-
         if (!roId) {
             log('ERROR: Could not read RO ID from URL');
             setStatus('#e63946');
             return;
         }
+        $id('dq-current').textContent = `RO ID: ${roId}`;
+
+        // Step 2: duplicate / out-of-order check BEFORE reading or posting.
+        // Refresh, Back button, a reopened tab, or a second tab will land here
+        // on an RO the server isn't waiting for. Don't post -- just offer a link
+        // to the RO that IS expected.
+        if (pingData.expectedRoId && String(pingData.expectedRoId) !== String(roId)) {
+            setStatus('#f4a261');
+            $id('dq-progress-label').textContent = 'Not the current RO — skipped.';
+            log(`RO ${roId} is not next in queue (server expects ${pingData.expectedRoId}).`);
+            log('Nothing posted. Scan state unchanged.');
+            showJump(pingData.expectedUrl, `Go to RO ${pingData.expectedRoId} →`);
+            return;
+        }
+
+        // Step 3: read product type from this page
+        const productType = readProductType();
 
         if (productType === null) {
-            log(`ERROR: Could not read product type for RO ${roId}`);
+            log(`ERROR: Could not find Product column for RO ${roId}`);
+            log('Page may not have loaded — refresh to retry.');
             setStatus('#e63946');
             return;
         }
 
+        const isBlank = productType === BLANK_LABEL;
         const isPersh = /persh/i.test(productType);
-        $id('dq-current').textContent = `RO ID: ${roId}`;
         $id('dq-product').textContent = productType;
-        $id('dq-product').style.color = isPersh ? '#e63946' : '#57cc99';
+        $id('dq-product').style.color = isPersh ? '#e63946' : isBlank ? '#f4a261' : '#57cc99';
 
-        log(`RO ${roId}  →  ${productType}${isPersh ? '  ⚑ PERSH' : ''}`);
+        log(`RO ${roId}  →  ${productType}${isPersh ? '  ⚑ PERSH' : ''}${isBlank ? '  ⚠ BLANK' : ''}`);
 
-        // Step 3: post result to server
+        // Step 4: post result to server (once per page load)
+        if (posted) return;
+        posted = true;
+
         let resultData;
         try {
             resultData = await serverPost('/result', { roId, productType });
         } catch (e) {
             log('ERROR posting result to server: ' + e);
             setStatus('#e63946');
+            posted = false; // allow a manual refresh to retry
+            return;
+        }
+
+        if (!resultData.ok) {
+            setStatus('#e63946');
+            log('Server rejected result: ' + (resultData.error || resultData.note || 'unknown'));
+            return;
+        }
+
+        // Server-side backstop: it already had this RO (e.g. two tabs posted
+        // the same page). Nothing was recorded or advanced.
+        if (resultData.accepted === false) {
+            setStatus('#f4a261');
+            log(`Server ignored RO ${roId} (${resultData.reason || 'duplicate'}). Scan state unchanged.`);
+            setProgress(resultData.index, resultData.total);
+            if (resultData.done) {
+                $id('dq-progress-label').textContent = 'Scan already complete!';
+            } else {
+                showJump(resultData.nextUrl, 'Go to next RO in queue →');
+            }
             return;
         }
 
@@ -267,7 +342,7 @@
         const total = resultData.total ?? pingData.total;
         setProgress(newIndex, total);
 
-        // Step 4: navigate to next URL or finish
+        // Step 5: navigate to next URL or finish
         if (resultData.done) {
             setStatus('#57cc99');
             $id('dq-progress-label').textContent = 'Scan complete!';
@@ -277,12 +352,17 @@
         } else {
             log(`Navigating to RO ${newIndex + 1} / ${total}...`);
             setTimeout(() => {
-                window.location.href = resultData.nextUrl;
+                // replace() keeps already-scanned ROs out of Back-button history
+                window.location.replace(resultData.nextUrl);
             }, 600);
         }
     }
 
     // Kick off after page settles
-    window.addEventListener('load', () => setTimeout(run, 500));
+    if (document.readyState === 'complete') {
+        setTimeout(run, 500);
+    } else {
+        window.addEventListener('load', () => setTimeout(run, 500), { once: true });
+    }
 
 })();

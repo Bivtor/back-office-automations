@@ -5,6 +5,7 @@ Power BI data preparation for the lockbox management reports. Converts the "Mana
 ```
 refresh.bat             double-click this; finds Python, installs pandas/pyarrow/openpyxl if missing, runs the script
 lockbox_to_parquet.py   the converter
+Parquet-Refresh-Read-Me.pdf   the two-page handoff doc left with the folder: what it does, why the DAX version was slow, how to change it
 ```
 
 ## What it does

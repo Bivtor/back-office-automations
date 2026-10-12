@@ -1,4 +1,4 @@
-	"""
+"""
 Parse a Chrome/Skia-exported "Payment Center" PDF into categorized rows.
 
 No OCR, no AI. Column positions are read from the PDF's own coordinates.
@@ -11,8 +11,11 @@ from collections import defaultdict
 
 import pdfplumber
 
-# Column boundaries in PDF points (x0). Letter page is 612pt wide.
-# Verified stable across the 2024 and 2026 exports of this report.
+# Column boundaries in PDF points (x0), as measured on a 612pt-wide portrait
+# page. They are scaled to whatever width the file actually has — see
+# _columns_for. The report has been exported both portrait (612pt) and
+# landscape (792pt), and the columns sit at the same fractions of the page
+# either way, so the ratios hold and the absolute points do not.
 COLUMNS = {
     "date":       (55, 125),   # Payment Date (line 1) / Send Date (line 2)
     "payment_no": (125, 200),  # Payment No. (line 1) / Name-Reference (line 2+)
@@ -23,22 +26,31 @@ COLUMNS = {
     "amount":     (500, 578),  # Recipient Amount (Items)
 }
 
+REFERENCE_WIDTH = 612.0   # the width those bounds were measured on
+
 DATE_RE = re.compile(r"^\d{2}/\d{2}/\d{4}$")
 AMOUNT_RE = re.compile(r"^[\d,]+\.\d{2}$")
 ITEMS_RE = re.compile(r"^\((\d+)\)$")
-LB_NUMBER_RE = re.compile(r"^LB \d+$")
+# "LB 419300", "LB416525" and a bare "LB" all turn up, so the number is
+# optional and the space is too. Case is ignored for the same reason the loan
+# matcher uses a prefix: this text is the bank's to change, not ours.
+LB_NUMBER_RE = re.compile(r"^LB([\s\-]*\d+)?$", re.IGNORECASE)
 
-# The loan reference is written "Loan" some days and "Loan Pull" others, so
-# match on the prefix rather than an exact string. Nothing else in this report
-# starts with "loan", and anything unexpected still lands in `unmatched` where
-# it gets reported rather than silently dropped.
+
+# Statuses that still land on the control sheet. A Scheduled payment is one the
+# bank has accepted and dated but not yet settled, so it belongs on the sheet
+# the same as a Completed one. Anything else — Deleted above all — is a payment
+# that isn't happening, and must stay out.
+COUNTED_STATUSES = {"completed", "scheduled"}
+
+
 def _is_loan(ref):
     return ref.strip().upper().startswith("LOAN")
 
 
 def _is_lockbox_ach(ref):
     ref = ref.strip()
-    return ref == "Lockbox" or bool(LB_NUMBER_RE.match(ref))
+    return ref.upper() == "LOCKBOX" or bool(LB_NUMBER_RE.match(ref))
 
 # Chrome subsets the embedded font; the "fi" ligature arrives as U+0000
 # and icomoon glyphs as U+E900.
@@ -62,14 +74,29 @@ def _clean(text):
     return text.strip()
 
 
-def _column_of(x0):
-    for name, (lo, hi) in COLUMNS.items():
+def _columns_for(width):
+    """
+    The column bounds for a page of this width.
+
+    Chrome lays the report out to whatever paper it is given, so a landscape
+    export puts every column at the same fraction of the page but a third
+    further across in points. Scaling by the width reads both. Without it a
+    792pt page leaves every amount past the right edge of the amount column,
+    so every row parses with no amount and would count as zero.
+    """
+    scale = (width or REFERENCE_WIDTH) / REFERENCE_WIDTH
+    return {name: (lo * scale, hi * scale) for name, (lo, hi) in COLUMNS.items()}
+
+
+def _column_of(x0, columns):
+    for name, (lo, hi) in columns.items():
         if lo <= x0 < hi:
             return name
     return None
 
 
 def _parse_page(page):
+    columns = _columns_for(page.width)
     words = []
     for w in page.extract_words():
         w["text"] = _clean(w["text"])
@@ -81,13 +108,13 @@ def _parse_page(page):
     # absorbed into their neighbour — see scan().
     amount_tokens = sum(
         1 for w in words
-        if COLUMNS["amount"][0] <= w["x0"] < COLUMNS["amount"][1]
+        if columns["amount"][0] <= w["x0"] < columns["amount"][1]
         and AMOUNT_RE.match(w["text"])
     )
     # A record begins on any line carrying a date in the leftmost data column.
     anchors = sorted(
         w["top"] for w in words
-        if COLUMNS["date"][0] <= w["x0"] < COLUMNS["date"][1]
+        if columns["date"][0] <= w["x0"] < columns["date"][1]
         and DATE_RE.match(w["text"])
     )
     # Two dates per record (payment date, send date) sit ~8pt apart.
@@ -106,7 +133,7 @@ def _parse_page(page):
 
         cells = defaultdict(list)
         for w in sorted(band, key=lambda w: (round(w["top"]), w["x0"])):
-            col = _column_of(w["x0"])
+            col = _column_of(w["x0"], columns)
             if col:
                 cells[col].append(w)
 
@@ -184,22 +211,33 @@ def read_pdf(path):
     return scan(path)["rows"]
 
 
-def categorize(rows, source):
+def categorize(rows, source, added=None):
     """
     Split rows into the control-sheet buckets for `source`
     ("loans_tt" or "ach").
 
+    `added` is {payment_no: bucket} for rows the user dragged into a bucket by
+    hand. It overrides both tests below — status and Name/Reference — because
+    the whole point of the override is the day the rules read a row wrongly.
+    Buckets that don't belong to this source are ignored rather than trusted,
+    so a stale key can't invent a category.
+
     Returns dict with:
       buckets   - {category: [rows]}   rows we will use
-      skipped   - [rows]               status is not Completed
-      unmatched - [rows]               Completed, but Name/Reference not ours
+      skipped   - [rows]               status isn't one we count
+      unmatched - [rows]               countable, but Name/Reference not ours
     """
     rules = CATEGORIES[source]
+    forced = {no: b for no, b in (added or {}).items() if b in rules}
     buckets = {name: [] for name in rules}
     skipped, unmatched = [], []
 
     for row in rows:
-        if row["status"].strip().lower() != "completed":
+        chosen = forced.get((row.get("payment_no") or "").strip())
+        if chosen:
+            buckets[chosen].append(row)
+            continue
+        if row["status"].strip().lower() not in COUNTED_STATUSES:
             skipped.append(row)
             continue
         for name, matches in rules.items():
@@ -210,6 +248,25 @@ def categorize(rows, source):
             unmatched.append(row)
 
     return {"buckets": buckets, "skipped": skipped, "unmatched": unmatched}
+
+
+def row_key(bucket, index, row):
+    """
+    A stable handle for one row, so the browser can say "leave this one out".
+
+    Payment numbers are unique per row and survive a re-pull of the same PDF,
+    which position does not — the afternoon file has more rows than the morning
+    one, so anything index-based would silently shift onto its neighbour. The
+    positional form is only a fallback for a row whose number didn't read.
+    """
+    no = (row.get("payment_no") or "").strip()
+    return no or f"{bucket}#{index}"
+
+
+def keep(bucket, rows, dropped):
+    """Rows the user hasn't struck out."""
+    dropped = set(dropped or ())
+    return [r for i, r in enumerate(rows) if row_key(bucket, i, r) not in dropped]
 
 
 def totals(rows):

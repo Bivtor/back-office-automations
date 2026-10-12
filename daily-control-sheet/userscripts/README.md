@@ -25,4 +25,4 @@ POST /api/upload/split/approve       {deposit_id}
 POST /api/upload/split/report        {status, message}
 ```
 
-The `server.py` in this folder's parent predates these endpoints; the server side of the pipeline ships in a later update.
+The server side lives in `../server.py` and `../upload_job.py`: the job planner matches deposits to the sheet's figures, decides delete / split / upload per row, serves the file bytes, and records each stage's report.
